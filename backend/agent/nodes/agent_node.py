@@ -5,6 +5,7 @@ from agent.state import AgentState
 from langchain.agents import create_agent
 from langchain_sambanova import ChatSambaNova
 from agent.nodes.helpers.prompt_helper import get_system_prompt
+from mcp.mcp_tool import get_balance, get_spend_by_category, get_transactions, propose_transfer, tool
 
 SAMBANOVA_MODELS = {
     "deepseek-r1": "DeepSeek-R1-0528",
@@ -16,6 +17,8 @@ SAMBANOVA_MODELS = {
     "gpt-oss-120b": "gpt-oss-120b",
     "qwen3-32b": "Qwen3-32B",
 }
+MCP_TOOLS = [get_balance, get_transactions,
+             get_spend_by_category, propose_transfer]
 
 # ToDo add model instantiator
 
@@ -43,7 +46,7 @@ async def agent_node(state:AgentState):
     agent = create_agent(
         model = llm,
         system_prompt= system_message,
-        tools = [],
+        tools = MCP_TOOLS,
         name="agent"
     )
     
