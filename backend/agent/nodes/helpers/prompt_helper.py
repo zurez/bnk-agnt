@@ -1,3 +1,6 @@
+from typing import Dict
+
+
 def get_intent_prompt(query: str) -> str:
     INTENT_PROMPT = """You are a banking security classifier. Analyze the user's query and determine if it's requesting:
 
