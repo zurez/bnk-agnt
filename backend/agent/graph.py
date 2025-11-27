@@ -1,6 +1,12 @@
-from backend.agent.nodes.route_condition import should_continue
-from backend.agent.state import AgentState
+from agent.nodes.route_condition import should_continue
+from agent.state import AgentState
 from langgraph.graph import StateGraph, MessagesState, START, END
+
+from agent.nodes.intent_classifier_node import intent_classifier_node
+from agent.nodes.agent_node import agent_node
+from agent.nodes.blocked_response_node import blocked_response_node
+from langgraph.checkpoint.memory import MemorySaver
+
 
 def create_agent_graph():
     workflow = StateGraph(AgentState)
@@ -18,4 +24,6 @@ def create_agent_graph():
         }
     )
     
-    pass
+    return workflow.compile(checkpointer=MemorySaver())
+
+graph = create_agent_graph()
