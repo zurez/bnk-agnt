@@ -8,10 +8,20 @@ from ag_ui_langgraph import add_langgraph_fastapi_endpoint
 from agent.graph import graph
 from copilotkit import LangGraphAGUIAgent
 from dotenv import load_dotenv
+from phoenix.otel import register
+from openinference.instrumentation.langchain import LangChainInstrumentor
+
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+register(
+  project_name="bank-agent",
+)
+LangChainInstrumentor(
+  
+).instrument()
 
 
 app = FastAPI(title="Chatbot for Learning")

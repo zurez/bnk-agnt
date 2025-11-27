@@ -36,6 +36,7 @@ services:
 
       # Phoenix
       PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:4317
+      PHOENIX_PROJECT_NAME: bank-agent
 
       # App config
       ENVIRONMENT: demo
