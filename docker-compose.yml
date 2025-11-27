@@ -1,0 +1,93 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: banking-db
+    environment:
+      POSTGRES_DB: banking_demo
+      POSTGRES_USER: banking_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-demo_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U banking_user -d banking_demo" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - banking-network
+
+  # Backend (FastAPI + LangGraph)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: banking-backend
+    depends_on:
+      - postgres
+    environment:
+      DATABASE_URL: postgresql://banking_user:${DB_PASSWORD:-demo_password}@postgres:5432/banking_demo
+
+      # LLM Providers
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      SAMBANOVA_API_KEY: ${SAMBANOVA_API_KEY}
+
+      # Phoenix
+      PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:4317
+
+      # App config
+      ENVIRONMENT: demo
+      LOG_LEVEL: info
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    networks:
+      - banking-network
+    restart: unless-stopped
+
+  # Frontend (Next.js + CopilotKit)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: banking-frontend
+    depends_on:
+      - backend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_WS_URL: ws://localhost:8000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - banking-network
+    restart: unless-stopped
+
+  # Phoenix Observability
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    container_name: banking-phoenix
+    ports:
+      - "6006:6006"
+      - "4317:4317"
+      - "4318:4318"
+    environment:
+      PHOENIX_PORT: 6006
+      PHOENIX_GRPC_PORT: 4317
+      PHOENIX_HTTP_PORT: 4318
+    networks:
+      - banking-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  banking-network:
+    driver: bridge

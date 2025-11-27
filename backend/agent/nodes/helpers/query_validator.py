@@ -1,3 +1,4 @@
+import re
 BLOCKED_PATTERNS = [
     # Financial crimes
     r'\b(money\s*launder|launder\s*money)\b',
