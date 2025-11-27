@@ -1,7 +1,7 @@
 import {
   CopilotRuntime,
   copilotRuntimeNextJSAppRouterEndpoint,
-  LangGraphAgent,
+  LangGraphHttpAgent,
   EmptyAdapter,
 } from "@copilotkit/runtime";
 import { NextRequest } from "next/server";
@@ -9,9 +9,8 @@ import { NextRequest } from "next/server";
 const serviceAdapter = new EmptyAdapter();
 const runtime = new CopilotRuntime({
   agents: {
-    my_agent: new LangGraphAgent({
-      deploymentUrl: "http://localhost:8000",
-      graphId: "agent",
+    bankbot: new LangGraphHttpAgent({
+      url: "http://127.0.0.1:8000/bankbot",
     }),
   },
 });
