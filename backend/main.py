@@ -5,8 +5,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from ag_ui_langgraph import add_langgraph_fastapi_endpoint
-from backend.agent.graph import graph
-from model import ChatRequest
+from agent.graph import graph
 from copilotkit import LangGraphAGUIAgent
 from dotenv import load_dotenv
 load_dotenv()
@@ -15,7 +14,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-app = FastAPI(title="Chatbot for Sarj Demo")
+app = FastAPI(title="Chatbot for Learning")
 
 app.add_middleware(
     CORSMiddleware,
@@ -32,7 +31,7 @@ add_langgraph_fastapi_endpoint(
     description="Banking related stuff",
     graph=graph,
   ),
-  path="/api/v1/bankbot-chat",
+  path="/bankbot",
 )
 
 @app.get("/health")
