@@ -1,14 +1,16 @@
 "use client";
 
-import React, { useState } from 'react';
-import { CopilotKit, useFrontendTool, useCopilotReadable } from "@copilotkit/react-core";
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { CopilotKit, useFrontendTool, useCopilotReadable, useCopilotChat } from "@copilotkit/react-core";
+import { TextMessage, MessageRole } from "@copilotkit/runtime-client-gql";
 import { 
   Wallet, 
   Send, 
   User,
   ChevronDown,
   Check,
-  Loader2
+  Loader2,
+  Bot
 } from 'lucide-react';
 
 // Component imports
@@ -20,105 +22,232 @@ import { SpendingChart } from '../components/SpendingChart';
 import { BankingChat } from '../components/BankingChat';
 
 // --- DATA & TYPES ---
-const users = [
-  { id: 'usr_01', name: 'Alice Chen', avatar: 'A' },
-  { id: 'usr_02', name: 'Bob Smith', avatar: 'B' },
+interface UserType {
+  id: string;
+  name: string;
+  avatar: string;
+}
+
+interface ModelType {
+  id: string;
+  name: string;
+}
+
+interface Beneficiary {
+  id: number;
+  name: string;
+  account: string;
+  bank: string;
+}
+
+interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
+  component?: React.ReactNode;
+}
+
+// Type for raw messages from CopilotKit
+interface RawMessage {
+  id: string;
+  type: string;
+  role?: string;
+  content?: string;
+  createdAt?: string | Date;
+  status?: { code: string };
+}
+
+const users: UserType[] = [
+  { id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', name: 'Alice Ahmed', avatar: 'A' },
+  { id: 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380b22', name: 'Bob Mansour', avatar: 'B' },
+  { id: 'c0eebc99-9c0b-4ef8-bb6d-6bb9bd380c33', name: 'Carol Ali', avatar: 'C' },
 ];
 
-const models = [
-  { id: 'gpt-4', name: 'GPT-4 Turbo' },
-  { id: 'claude-3', name: 'Claude 3 Opus' },
+const models: ModelType[] = [
+  { id: 'gpt-4o', name: 'GPT-4o' },
+  { id: 'deepseek-r1', name: 'DeepSeek R1' },
+  { id: 'deepseek-v3', name: 'DeepSeek V3' },
+  { id: 'llama-3.3-70b', name: 'Llama 3.3 70B' },
+  { id: 'llama-3.1-8b', name: 'Llama 3.1 8B' },
+  { id: 'qwen3-32b', name: 'Qwen3 32B' },
 ];
 
-const DEFAULT_BENEFICIARIES = [
+const DEFAULT_BENEFICIARIES: Beneficiary[] = [
   { id: 1, name: 'Sarah Wilson', account: '**** 4521', bank: 'Chase' },
   { id: 2, name: 'Mike Ross', account: '**** 8892', bank: 'BOA' },
   { id: 3, name: 'Jessica Pearson', account: '**** 1234', bank: 'Citi' },
 ];
 
 // --- MAIN PAGE CONTENT ---
-function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSelectedModelId }: any) {
+interface PageContentProps {
+  selectedUserId: string;
+  setSelectedUserId: (id: string) => void;
+  selectedModelId: string;
+  setSelectedModelId: (id: string) => void;
+}
+
+function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSelectedModelId }: PageContentProps) {
   const selectedUser = users.find(u => u.id === selectedUserId);
-  const [messages, setMessages] = useState<any[]>([{ id: 'init', role: 'assistant', content: "Hello! I'm your Banking Assistant. How can I help you today?", timestamp: new Date() }]);
   const [inputValue, setInputValue] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
-  const [thinkingStep, setThinkingStep] = useState("Thinking...");
-  const [beneficiaries, setBeneficiaries] = useState(DEFAULT_BENEFICIARIES);
+  const [beneficiaries, setBeneficiaries] = useState<Beneficiary[]>(DEFAULT_BENEFICIARIES);
+  
+  // Local messages state for component-based messages only
+  const [localMessages, setLocalMessages] = useState<ChatMessage[]>([
+    { 
+      id: 'init', 
+      role: 'assistant', 
+      content: "Hello! I'm your Banking Assistant. How can I help you today?", 
+      timestamp: new Date(0) // Early timestamp to ensure it's first
+    }
+  ]);
 
-  const addMessage = (role: 'user' | 'assistant', content: string, component?: React.ReactNode) => {
-    setMessages(prev => [...prev, { id: Date.now().toString(), role, content, timestamp: new Date(), component }]);
-  };
+  // Use CopilotChat hook
+  const { appendMessage, isLoading, visibleMessages } = useCopilotChat();
 
-  const handleSend = (e?: React.FormEvent, overridePrompt?: string) => {
+  // Convert visibleMessages to ChatMessage format and merge with local messages
+  const messages: ChatMessage[] = React.useMemo(() => {
+    // Get TextMessages from CopilotKit
+    const copilotMessages: ChatMessage[] = (visibleMessages as RawMessage[])
+      .filter((m) => m.type === 'TextMessage' && m.content && m.role)
+      .map((m) => ({
+        id: m.id,
+        role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
+        content: m.content!,
+        timestamp: new Date(m.createdAt || Date.now()),
+      }));
+
+    // Merge with local messages (which may have components)
+    const allMessages = [...localMessages];
+    
+    // Add or update copilot messages
+    for (const cm of copilotMessages) {
+      const existingIndex = allMessages.findIndex(m => m.id === cm.id);
+      if (existingIndex >= 0) {
+        // Update existing message content (for streaming)
+        allMessages[existingIndex] = {
+          ...allMessages[existingIndex],
+          content: cm.content,
+        };
+      } else {
+        // Add new message
+        allMessages.push(cm);
+      }
+    }
+
+    // Sort by timestamp and dedupe
+    const seen = new Set<string>();
+    return allMessages
+      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
+      .filter(m => {
+        if (seen.has(m.id)) return false;
+        seen.add(m.id);
+        return true;
+      });
+  }, [visibleMessages, localMessages]);
+
+  // Add message helper for tool handlers
+  const addMessage = useCallback((role: 'user' | 'assistant', content: string, component?: React.ReactNode) => {
+    const id = `local-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    const newMessage: ChatMessage = {
+      id,
+      role,
+      content,
+      timestamp: new Date(),
+      component,
+    };
+    setLocalMessages(prev => [...prev, newMessage]);
+  }, []);
+
+  const handleSend = async (e?: React.FormEvent, overridePrompt?: string) => {
     e?.preventDefault();
     const prompt = overridePrompt || inputValue;
-    if (!prompt.trim()) return;
+    if (!prompt.trim() || isLoading) return;
 
-    addMessage('user', prompt);
     setInputValue("");
-    // CopilotKit will handle the AI response via frontend tools
+
+    try {
+      // Send to CopilotKit backend - it will add to visibleMessages
+      await appendMessage(
+        new TextMessage({
+          role: MessageRole.User,
+          content: prompt,
+        })
+      );
+    } catch (error) {
+      console.error('Error sending message:', error);
+      addMessage('assistant', 'Sorry, there was an error processing your request.');
+    }
   };
 
-  // --- COPILOT ACTIONS (Updated to use Shared State) ---
-  useCopilotReadable({ description: "List of available beneficiaries", value: beneficiaries });
+  // --- COPILOT READABLE STATE ---
+  useCopilotReadable({ 
+    description: "List of available beneficiaries for money transfers", 
+    value: beneficiaries 
+  });
   
+  // --- COPILOT FRONTEND TOOLS ---
   useFrontendTool({ 
     name: "showBeneficiaries", 
-    description: "Display beneficiaries", 
+    description: "Display the list of beneficiaries that the user can transfer money to", 
     parameters: [],
-    handler: async () => addMessage('assistant', "Here are your beneficiaries.", <BeneficiaryManager beneficiaries={beneficiaries} setBeneficiaries={setBeneficiaries} />) 
+    handler: async () => {
+      addMessage(
+        'assistant', 
+        "Here are your beneficiaries:", 
+        <BeneficiaryManager beneficiaries={beneficiaries} setBeneficiaries={setBeneficiaries} />
+      );
+      return "Displayed beneficiaries list";
+    }
   });
   
   useFrontendTool({ 
     name: "transferMoney", 
-    description: "Show transfer form", 
+    description: "Show the money transfer form to allow user to send money", 
     parameters: [],
-    handler: async () => addMessage('assistant', "Transfer form ready.", <TransferMoney beneficiaries={beneficiaries} />) 
+    handler: async () => {
+      addMessage(
+        'assistant', 
+        "Here's the transfer form:", 
+        <TransferMoney beneficiaries={beneficiaries} />
+      );
+      return "Displayed transfer form";
+    }
   });
   
   useFrontendTool({ 
     name: "showBalance", 
-    description: "Show account balance", 
+    description: "Show the user's current account balance", 
     parameters: [],
-    handler: async () => addMessage('assistant', "Here is your current balance.", <BalanceCard userId={selectedUserId} />) 
+    handler: async () => {
+      addMessage(
+        'assistant', 
+        "Here is your current balance:", 
+        <BalanceCard userId={selectedUserId} />
+      );
+      return "Displayed account balance";
+    }
   });
   
   useFrontendTool({ 
     name: "showSpending", 
-    description: "Show spending analysis", 
+    description: "Show spending analysis and breakdown chart", 
     parameters: [],
-    handler: async () => addMessage('assistant', "Here is your spending breakdown.", <SpendingChart />) 
+    handler: async () => {
+      addMessage(
+        'assistant', 
+        "Here is your spending breakdown:", 
+        <SpendingChart />
+      );
+      return "Displayed spending chart";
+    }
   });
 
   return (
     <div className="flex h-screen bg-zinc-950 text-zinc-200 font-sans overflow-hidden">
       {/* SIDEBAR */}
-      <aside className="w-64 bg-zinc-900/40 border-r border-zinc-800 hidden md:flex flex-col backdrop-blur-sm">
-        <div className="p-6">
-          <div className="flex items-center gap-2 mb-8">
-             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/20">
-               <Wallet className="w-5 h-5 text-white" />
-             </div>
-             <span className="font-bold text-lg tracking-tight text-white">BankAgent</span>
-          </div>
-          <div className="space-y-6">
-            <div>
-              <h3 className="text-xs font-semibold text-zinc-500 mb-3 tracking-wider uppercase">Quick Access</h3>
-              <div className="space-y-1">
-                <button onClick={() => handleSend(undefined, "Show my balance")} className="w-full text-left px-3 py-2 rounded-lg hover:bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 text-sm transition-colors flex items-center gap-2">
-                  <Wallet size={14} /> Balance
-                </button>
-                <button onClick={() => handleSend(undefined, "Transfer money")} className="w-full text-left px-3 py-2 rounded-lg hover:bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 text-sm transition-colors flex items-center gap-2">
-                  <ArrowRightLeft size={14} /> Transfer
-                </button>
-                <button onClick={() => handleSend(undefined, "Show spending")} className="w-full text-left px-3 py-2 rounded-lg hover:bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 text-sm transition-colors flex items-center gap-2">
-                  <PieChart size={14} /> Reports
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </aside>
+      <Sidebar onQuickAction={(prompt: string) => handleSend(undefined, prompt)} />
 
       {/* MAIN CONTENT */}
       <main className="flex-1 flex flex-col relative min-w-0">
@@ -132,6 +261,23 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
           </div>
           <div className="flex items-center gap-4">
              <div className="hidden sm:flex items-center gap-2">
+                {/* Model Selector */}
+                <div className="relative group">
+                  <button className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-md text-xs font-medium text-zinc-400 hover:text-zinc-200 transition-colors">
+                    <Bot size={14} /> {models.find(m => m.id === selectedModelId)?.name} <ChevronDown size={12} />
+                  </button>
+                  <div className="absolute right-0 top-full mt-1 w-48 bg-zinc-950 border border-zinc-800 rounded-lg shadow-xl overflow-hidden hidden group-hover:block z-50 animate-in fade-in slide-in-from-top-1">
+                    {models.map(m => (
+                      <button key={m.id} onClick={() => setSelectedModelId(m.id)} className={`w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-zinc-900 transition-colors ${selectedModelId === m.id ? 'text-white bg-zinc-900' : 'text-zinc-400'}`}>
+                        <Bot size={14} className={selectedModelId === m.id ? 'text-blue-500' : 'text-zinc-600'} />
+                        {m.name}
+                        {selectedModelId === m.id && <Check size={12} className="ml-auto text-blue-500" />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* User Selector */}
                 <div className="relative group">
                   <button className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-md text-xs font-medium text-zinc-400 hover:text-zinc-200 transition-colors">
                     <User size={14} /> {selectedUser?.name} <ChevronDown size={12} />
@@ -151,14 +297,14 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
         </header>
 
         <div className="flex-1 overflow-hidden relative flex flex-col">
-          <BankingChat messages={messages} isTyping={isTyping} thinkingStep={thinkingStep} onSend={handleSend} />
+          <BankingChat messages={messages} isTyping={isLoading} thinkingStep="Thinking..." onSend={handleSend} />
           <div className="absolute bottom-6 left-0 right-0 px-4 z-10">
             <div className="max-w-2xl mx-auto relative group">
               <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full opacity-20 group-hover:opacity-40 transition duration-500 blur"></div>
               <form onSubmit={(e) => handleSend(e)} className="relative flex items-center bg-zinc-900/90 backdrop-blur-xl border border-zinc-700/50 rounded-full shadow-2xl p-1.5">
                 <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} placeholder="Ask about your finances..." className="flex-1 bg-transparent text-white placeholder:text-zinc-500 focus:outline-none px-4 py-3 text-sm" />
-                <button type="submit" disabled={!inputValue.trim() || isTyping} className="p-2.5 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-white rounded-full transition-all shrink-0">
-                  {isTyping ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                <button type="submit" disabled={!inputValue.trim() || isLoading} className="p-2.5 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-white rounded-full transition-all shrink-0">
+                  {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
                 </button>
               </form>
             </div>
@@ -171,11 +317,20 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
 
 // --- APP ENTRY ---
 export default function App() {
-  const [selectedUserId, setSelectedUserId] = useState(users[0].id);
-  const [selectedModelId, setSelectedModelId] = useState(models[0].id);
+  const DEFAULT_USER_ID = users[0].id; 
+  const DEFAULT_MODEL_ID = models[0].id;
+
+  const [selectedUserId, setSelectedUserId] = useState(DEFAULT_USER_ID);
+  const [selectedModelId, setSelectedModelId] = useState(DEFAULT_MODEL_ID);
+  
   return (
-    <CopilotKit runtimeUrl="/api/copilotkit" agent="bankbot" properties={{ user_id: selectedUserId }}>
-      <PageContent selectedUserId={selectedUserId} setSelectedUserId={setSelectedUserId} selectedModelId={selectedModelId} setSelectedModelId={setSelectedModelId} />
+    <CopilotKit runtimeUrl="/api/copilotkit" agent="bankbot" properties={{ user_id: selectedUserId, model: selectedModelId }}>
+      <PageContent 
+        selectedUserId={selectedUserId} 
+        setSelectedUserId={setSelectedUserId} 
+        selectedModelId={selectedModelId} 
+        setSelectedModelId={setSelectedModelId} 
+      />
     </CopilotKit>
   );
 }
