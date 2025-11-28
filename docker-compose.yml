@@ -43,32 +43,26 @@ services:
       LOG_LEVEL: info
     ports:
       - "8000:8000"
-    volumes:
-      - ./backend:/app
     networks:
       - banking-network
     restart: unless-stopped
-
   # Frontend (Next.js + CopilotKit)
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: banking-frontend
-    depends_on:
-      - backend
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
-      NEXT_PUBLIC_WS_URL: ws://localhost:8000
-      BACKEND_URL: http://backend:8000
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    networks:
-      - banking-network
-    restart: unless-stopped
+  # frontend:
+  #   build:
+  #     context: ./frontend
+  #     dockerfile: Dockerfile
+  #   container_name: banking-frontend
+  #   depends_on:
+  #     - backend
+  #   environment:
+  #     NEXT_PUBLIC_API_URL: http://localhost:8000
+  #     NEXT_PUBLIC_WS_URL: ws://localhost:8000
+  #     BACKEND_URL: http://backend:8000
+  #   ports:
+  #     - "3000:3000"
+  #   networks:
+  #     - banking-network
+  #   restart: unless-stopped
 
   # Phoenix Observability
   phoenix:

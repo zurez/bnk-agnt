@@ -1,4 +1,4 @@
-from agent.state import AgentState
+from bankbot.state import AgentState
 from langchain.messages import AIMessage
 
 async def blocked_response_node(state: AgentState) -> AgentState:
@@ -15,5 +15,6 @@ async def blocked_response_node(state: AgentState) -> AgentState:
                 f"How else may I assist you today?"
     )
     
-    state["messages"].append(rejection_message)
-    return state
+    messages = list(state.get("messages") or [])
+    messages.append(rejection_message)
+    return {"messages": messages}

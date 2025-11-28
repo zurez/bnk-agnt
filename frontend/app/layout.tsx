@@ -1,5 +1,5 @@
-import { CopilotKit } from "@copilotkit/react-core";
-import "@copilotkit/react-ui/styles.css";
+ import "@copilotkit/react-ui/styles.css";
+import "./globals.css";
 
 export default function RootLayout({
   children,
@@ -8,10 +8,8 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>
-        <CopilotKit runtimeUrl="/api/copilotkit" agent="bankbot">
-          {children}
-        </CopilotKit>
+      <body className="antialiased">
+        {children}
       </body>
     </html>
   );
