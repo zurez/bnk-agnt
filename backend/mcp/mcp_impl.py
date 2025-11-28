@@ -1,7 +1,9 @@
+from datetime import datetime
 import os
 from typing import List
 from sqlalchemy import create_engine, select, text, MetaData, insert, update
 import uuid 
+
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://zurez@127.0.0.1:5432/banking_demo")
 DATABASE_URL="postgresql://zurez@127.0.0.1:5432/banking_demo"

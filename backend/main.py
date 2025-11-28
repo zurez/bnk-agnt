@@ -46,7 +46,7 @@ app.add_middleware(
 add_langgraph_fastapi_endpoint(
   app=app,
   agent=LangGraphAGUIAgent(
-    name="",
+    name="bankbot",
     description="Banking related stuff",
     graph=graph,
   ),

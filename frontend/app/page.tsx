@@ -1,8 +1,13 @@
 "use client";
 
-import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { CopilotKit, useFrontendTool, useCopilotReadable, useCopilotChat } from "@copilotkit/react-core";
-import { TextMessage, MessageRole } from "@copilotkit/runtime-client-gql";
+import React, { useState, useCallback, useMemo } from 'react';
+import { 
+  CopilotKit, 
+  useCopilotAction,
+  useCopilotReadable, 
+  useCopilotChat,
+} from "@copilotkit/react-core";
+import { TextMessage, Role } from "@copilotkit/runtime-client-gql";
 import { 
   Wallet, 
   Send, 
@@ -48,16 +53,6 @@ interface ChatMessage {
   component?: React.ReactNode;
 }
 
-// Type for raw messages from CopilotKit
-interface RawMessage {
-  id: string;
-  type: string;
-  role?: string;
-  content?: string;
-  createdAt?: string | Date;
-  status?: { code: string };
-}
-
 const users: UserType[] = [
   { id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', name: 'Alice Ahmed', avatar: 'A' },
   { id: 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380b22', name: 'Bob Mansour', avatar: 'B' },
@@ -92,72 +87,98 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
   const [inputValue, setInputValue] = useState("");
   const [beneficiaries, setBeneficiaries] = useState<Beneficiary[]>(DEFAULT_BENEFICIARIES);
   
-  // Local messages state for component-based messages only
-  const [localMessages, setLocalMessages] = useState<ChatMessage[]>([
-    { 
-      id: 'init', 
-      role: 'assistant', 
-      content: "Hello! I'm your Banking Assistant. How can I help you today?", 
-      timestamp: new Date(0) // Early timestamp to ensure it's first
-    }
-  ]);
+  // Local messages for components from frontend actions
+  const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
 
   // Use CopilotChat hook
   const { appendMessage, isLoading, visibleMessages } = useCopilotChat();
 
-  // Convert visibleMessages to ChatMessage format and merge with local messages
-  const messages: ChatMessage[] = React.useMemo(() => {
-    // Get TextMessages from CopilotKit
-    const copilotMessages: ChatMessage[] = (visibleMessages as RawMessage[])
-      .filter((m) => m.type === 'TextMessage' && m.content && m.role)
-      .map((m) => ({
-        id: m.id,
-        role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
-        content: m.content!,
-        timestamp: new Date(m.createdAt || Date.now()),
-      }));
+  // Build messages from visibleMessages + local messages
+  const messages: ChatMessage[] = useMemo(() => {
+    const result: ChatMessage[] = [
+      { 
+        id: 'init', 
+        role: 'assistant', 
+        content: "Hello! I'm your Banking Assistant. How can I help you today?", 
+        timestamp: new Date(0)
+      }
+    ];
 
-    // Merge with local messages (which may have components)
-    const allMessages = [...localMessages];
+    const rawMessages = visibleMessages as any[];
     
-    // Add or update copilot messages
-    for (const cm of copilotMessages) {
-      const existingIndex = allMessages.findIndex(m => m.id === cm.id);
-      if (existingIndex >= 0) {
-        // Update existing message content (for streaming)
-        allMessages[existingIndex] = {
-          ...allMessages[existingIndex],
-          content: cm.content,
-        };
-      } else {
-        // Add new message
-        allMessages.push(cm);
+    if (!rawMessages || rawMessages.length === 0) {
+      return [...result, ...localMessages];
+    }
+
+    // Strategy 1: Look for AgentStateMessage with complete conversation history
+    let stateMessages: any[] = [];
+    for (let i = rawMessages.length - 1; i >= 0; i--) {
+      const msg = rawMessages[i];
+      if (msg?.type === 'AgentStateMessage' && msg?.state?.messages) {
+        stateMessages = msg.state.messages;
+        break;
       }
     }
 
-    // Sort by timestamp and dedupe
-    const seen = new Set<string>();
-    return allMessages
+    if (stateMessages.length > 0) {
+      // Use messages from agent state (complete history from LangGraph)
+      stateMessages.forEach((m: any, index: number) => {
+        // Skip if no content (tool calls have 'name' instead of 'content')
+        if (!m.content) return;
+        // Skip tool-related messages
+        if (m.name || m.actionExecutionId || m.result) return;
+        // Only process user and assistant messages
+        if (m.role !== 'user' && m.role !== 'assistant') return;
+
+        result.push({
+          id: m.id || `state-${index}`,
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+          timestamp: new Date(index + 1),
+        });
+      });
+    } else {
+      // Strategy 2: Fallback to TextMessages directly
+      const seenIds = new Set<string>();
+      rawMessages.forEach((m: any, index: number) => {
+        if (m?.type === 'TextMessage' && m?.content && m?.role && !seenIds.has(m.id)) {
+          seenIds.add(m.id);
+          result.push({
+            id: m.id,
+            role: m.role === 'user' ? 'user' : 'assistant',
+            content: m.content,
+            timestamp: new Date(index + 1),
+          });
+        }
+      });
+    }
+
+    // Add local messages (from frontend actions with components)
+    localMessages.forEach((lm) => {
+      result.push(lm);
+    });
+
+    // Sort by timestamp and dedupe by ID
+    const seenFinal = new Set<string>();
+    return result
       .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
       .filter(m => {
-        if (seen.has(m.id)) return false;
-        seen.add(m.id);
+        if (seenFinal.has(m.id)) return false;
+        seenFinal.add(m.id);
         return true;
       });
   }, [visibleMessages, localMessages]);
 
-  // Add message helper for tool handlers
-  const addMessage = useCallback((role: 'user' | 'assistant', content: string, component?: React.ReactNode) => {
+  // Add local message helper
+  const addLocalMessage = useCallback((role: 'user' | 'assistant', content: string, component?: React.ReactNode) => {
     const id = `local-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    
-    const newMessage: ChatMessage = {
+    setLocalMessages(prev => [...prev, {
       id,
       role,
       content,
       timestamp: new Date(),
       component,
-    };
-    setLocalMessages(prev => [...prev, newMessage]);
+    }]);
   }, []);
 
   const handleSend = async (e?: React.FormEvent, overridePrompt?: string) => {
@@ -168,16 +189,15 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
     setInputValue("");
 
     try {
-      // Send to CopilotKit backend - it will add to visibleMessages
       await appendMessage(
         new TextMessage({
-          role: MessageRole.User,
+          role: Role.User,
           content: prompt,
         })
       );
     } catch (error) {
       console.error('Error sending message:', error);
-      addMessage('assistant', 'Sorry, there was an error processing your request.');
+      addLocalMessage('assistant', 'Sorry, there was an error processing your request.');
     }
   };
 
@@ -187,62 +207,72 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
     value: beneficiaries 
   });
   
-  // --- COPILOT FRONTEND TOOLS ---
-  useFrontendTool({ 
+  // --- COPILOT ACTIONS (Frontend Tools) ---
+  // These are exposed to the LangGraph agent via CopilotKit
+  useCopilotAction({ 
     name: "showBeneficiaries", 
-    description: "Display the list of beneficiaries that the user can transfer money to", 
+    description: "Display the list of beneficiaries that the user can transfer money to. Call this when user wants to SEE or VIEW their beneficiaries.", 
     parameters: [],
     handler: async () => {
-      addMessage(
+      console.log("🎯 showBeneficiaries handler called!");
+      addLocalMessage(
         'assistant', 
         "Here are your beneficiaries:", 
         <BeneficiaryManager beneficiaries={beneficiaries} setBeneficiaries={setBeneficiaries} />
       );
-      return "Displayed beneficiaries list";
+      return "Displayed beneficiaries list to the user";
     }
   });
   
-  useFrontendTool({ 
+  useCopilotAction({ 
     name: "transferMoney", 
-    description: "Show the money transfer form to allow user to send money", 
+    description: "Show the money transfer form to allow user to send money. Call this when user wants to make a transfer.", 
     parameters: [],
     handler: async () => {
-      addMessage(
+      console.log("🎯 transferMoney handler called!");
+      addLocalMessage(
         'assistant', 
         "Here's the transfer form:", 
         <TransferMoney beneficiaries={beneficiaries} />
       );
-      return "Displayed transfer form";
+      return "Displayed transfer money form to the user";
     }
   });
   
-  useFrontendTool({ 
+  useCopilotAction({ 
     name: "showBalance", 
-    description: "Show the user's current account balance", 
+    description: "Show the user's current account balance with a visual UI component. ALWAYS call this when user asks to show, see, view, or display their balance.", 
     parameters: [],
     handler: async () => {
-      addMessage(
+      console.log("🎯 showBalance handler called!");
+      addLocalMessage(
         'assistant', 
         "Here is your current balance:", 
         <BalanceCard userId={selectedUserId} />
       );
-      return "Displayed account balance";
+      return "Displayed account balance to the user";
     }
   });
   
-  useFrontendTool({ 
+  useCopilotAction({ 
     name: "showSpending", 
-    description: "Show spending analysis and breakdown chart", 
+    description: "Show spending analysis and breakdown chart. Call this when user wants to SEE or VIEW their spending.", 
     parameters: [],
     handler: async () => {
-      addMessage(
+      console.log("🎯 showSpending handler called!");
+      addLocalMessage(
         'assistant', 
         "Here is your spending breakdown:", 
         <SpendingChart />
       );
-      return "Displayed spending chart";
+      return "Displayed spending analysis chart to the user";
     }
   });
+
+  // Debug: Log visibleMessages
+  React.useEffect(() => {
+    console.log('visibleMessages:', visibleMessages);
+  }, [visibleMessages]);
 
   return (
     <div className="flex h-screen bg-zinc-950 text-zinc-200 font-sans overflow-hidden">
