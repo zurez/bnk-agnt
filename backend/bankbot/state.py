@@ -1,0 +1,13 @@
+from typing import List, Literal, Optional, Any, Annotated
+from langgraph.graph.message import add_messages
+from copilotkit import CopilotKitState
+
+# Inherit from CopilotKitState (which is a TypedDict)
+class AgentState(CopilotKitState):
+    # Use Annotated for messages to support appending
+    messages: Annotated[List[Any], add_messages]
+    user_id: Optional[str]
+    model_name: Optional[str]
+    intent: Optional[Literal["allowed", "blocked"]]
+    intent_reason: Optional[str]
+    actions: Optional[List[Any]]

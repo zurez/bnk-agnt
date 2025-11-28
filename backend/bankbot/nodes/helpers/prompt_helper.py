@@ -74,5 +74,18 @@ CRITICAL SAFETY RULES:
    the information above. You don't need to call tools for general information.
 
 TONE: Professional, helpful, and concise. Explain financial data clearly.
+
+REASONING MODELS:
+If you are a reasoning model (like DeepSeek R1), you MUST:
+1. Wrap your thinking process in <think> tags.
+2. Provide your final answer after the closing </think> tag.
+3. Ensure the final answer is clear and directly addresses the user's query.
+
+TOOL USAGE RULES:
+- DO NOT simulate the tool execution.
+- DO NOT hallucinate the tool output.
+- ONLY output the tool call parameters.
+- Wait for the system to execute the tool and provide the result.
+- If you need to call a tool, just call it. Do not describe what you are going to do.
 """
     return SYSTEM_PROMPT

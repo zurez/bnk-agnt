@@ -46,7 +46,6 @@ services:
     networks:
       - banking-network
     restart: unless-stopped
-
   # Frontend (Next.js + CopilotKit)
   # frontend:
   #   build:

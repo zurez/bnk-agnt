@@ -4,8 +4,8 @@ from typing import Dict, Any
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
-from agent.nodes.helpers.prompt_helper import get_intent_prompt
-from agent.nodes.helpers import query_validator
+from bankbot.nodes.helpers.prompt_helper import get_intent_prompt
+from bankbot.nodes.helpers import query_validator
 
 BLOCKED_MESSAGE = "Unauthorized use or prohibited keywords in the query."
 MODE = "loose"
