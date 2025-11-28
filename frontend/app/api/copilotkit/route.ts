@@ -10,7 +10,7 @@ const serviceAdapter = new EmptyAdapter();
 const runtime = new CopilotRuntime({
   agents: {
     bankbot: new LangGraphHttpAgent({
-      url: `${process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"}/bankbot/`,
+      url: `${process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"}/bankbot`,
     }),
   },
  
