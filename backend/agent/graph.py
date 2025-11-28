@@ -23,6 +23,8 @@ def create_agent_graph():
             "end": "blocked_response"
         }
     )
+    workflow.add_edge("agent", END)
+    workflow.add_edge("blocked_response", END)
     
     return workflow.compile(checkpointer=MemorySaver())
 

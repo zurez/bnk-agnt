@@ -6,6 +6,7 @@ from langchain.agents import create_agent
 from langchain_sambanova import ChatSambaNova
 from agent.nodes.helpers.prompt_helper import get_system_prompt
 from mcp.mcp_tool import get_balance, get_spend_by_category, get_transactions, propose_transfer, tool
+from agent.tool_manager import ToolManager, FRONTEND_TOOL_ALLOWLIST
 
 SAMBANOVA_MODELS = {
     "deepseek-r1": "DeepSeek-R1-0528",
@@ -20,7 +21,11 @@ SAMBANOVA_MODELS = {
 MCP_TOOLS = [get_balance, get_transactions,
              get_spend_by_category, propose_transfer]
 
-# ToDo add model instantiator
+tool_manager = ToolManager(
+    frontend_allowlist=FRONTEND_TOOL_ALLOWLIST,
+    backend_tools=MCP_TOOLS,
+    max_frontend_tools=50,
+)
 
 async def agent_node(state:AgentState):
     user_id = state.get("user_id", "unknown")
@@ -43,10 +48,15 @@ async def agent_node(state:AgentState):
             model="gpt-4-turbo",
             temperature=0,
         )
+    
+    frontend_tools = tool_manager.gather_frontend_tools(state)
+    
+    all_tools = frontend_tools + MCP_TOOLS
+    
     agent = create_agent(
         model = llm,
         system_prompt= system_message,
-        tools = MCP_TOOLS,
+        tools = all_tools,
         name="agent"
     )
     
