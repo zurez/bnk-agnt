@@ -1,12 +1,8 @@
 import React from "react";
 import { Wallet } from "lucide-react";
 
-interface CardProps {
-  children: React.ReactNode;
-  className?: string;
-}
-
-export const Card = ({ children, className = "" }: CardProps) => (
+// Shared Card component
+const Card = ({ children, className = "" }: { children: React.ReactNode, className?: string }) => (
   <div className={`bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden shadow-2xl ${className}`}>
     {children}
   </div>

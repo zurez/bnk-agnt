@@ -1,12 +1,8 @@
 import React, { useState } from "react";
 import { Users, Trash2, Check, X, Plus, AlertCircle } from "lucide-react";
 
-interface CardProps {
-  children: React.ReactNode;
-  className?: string;
-}
-
-const Card = ({ children, className = "" }: CardProps) => (
+// Shared Card component
+const Card = ({ children, className = "" }: { children: React.ReactNode, className?: string }) => (
   <div className={`bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden shadow-2xl ${className}`}>
     {children}
   </div>
@@ -68,38 +64,17 @@ export const BeneficiaryManager = ({ beneficiaries, setBeneficiaries }: Benefici
         <div className="p-6 space-y-4">
            <div>
              <label className="text-xs text-zinc-500 uppercase font-bold tracking-wider">Full Name</label>
-             <input 
-               value={newBen.name} 
-               onChange={e => setNewBen({...newBen, name: e.target.value})} 
-               className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 mt-1 text-sm text-white focus:border-blue-500 outline-none" 
-               placeholder="e.g. John Doe" 
-             />
+             <input value={newBen.name} onChange={e => setNewBen({...newBen, name: e.target.value})} className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 mt-1 text-sm text-white focus:border-blue-500 outline-none" placeholder="e.g. John Doe" />
            </div>
            <div>
              <label className="text-xs text-zinc-500 uppercase font-bold tracking-wider">Bank Name</label>
-             <input 
-               value={newBen.bank} 
-               onChange={e => setNewBen({...newBen, bank: e.target.value})} 
-               className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 mt-1 text-sm text-white focus:border-blue-500 outline-none" 
-               placeholder="e.g. Chase Bank" 
-             />
+             <input value={newBen.bank} onChange={e => setNewBen({...newBen, bank: e.target.value})} className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 mt-1 text-sm text-white focus:border-blue-500 outline-none" placeholder="e.g. Chase Bank" />
            </div>
            <div>
              <label className="text-xs text-zinc-500 uppercase font-bold tracking-wider">Account Number (Last 4)</label>
-             <input 
-               value={newBen.account} 
-               onChange={e => setNewBen({...newBen, account: e.target.value})} 
-               className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 mt-1 text-sm text-white focus:border-blue-500 outline-none" 
-               placeholder="e.g. **** 1234" 
-             />
+             <input value={newBen.account} onChange={e => setNewBen({...newBen, account: e.target.value})} className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 mt-1 text-sm text-white focus:border-blue-500 outline-none" placeholder="e.g. **** 1234" />
            </div>
-           <button 
-             onClick={handleAddSubmit} 
-             disabled={!newBen.name || !newBen.bank} 
-             className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white py-3 rounded-lg font-medium transition-colors mt-2"
-           >
-             Review Details
-           </button>
+           <button onClick={handleAddSubmit} disabled={!newBen.name || !newBen.bank} className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white py-3 rounded-lg font-medium transition-colors mt-2">Review Details</button>
         </div>
       )}
 
@@ -113,32 +88,13 @@ export const BeneficiaryManager = ({ beneficiaries, setBeneficiaries }: Benefici
               </div>
            </div>
            <div className="bg-zinc-950 rounded-lg border border-zinc-800 p-4 space-y-3 mb-6">
-              <div className="flex justify-between border-b border-zinc-800 pb-2">
-                <span className="text-zinc-500 text-xs">Name</span>
-                <span className="text-zinc-200 text-sm font-medium">{newBen.name}</span>
-              </div>
-              <div className="flex justify-between border-b border-zinc-800 pb-2">
-                <span className="text-zinc-500 text-xs">Bank</span>
-                <span className="text-zinc-200 text-sm font-medium">{newBen.bank}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-zinc-500 text-xs">Account</span>
-                <span className="text-zinc-200 text-sm font-medium">{newBen.account}</span>
-              </div>
+              <div className="flex justify-between border-b border-zinc-800 pb-2"><span className="text-zinc-500 text-xs">Name</span><span className="text-zinc-200 text-sm font-medium">{newBen.name}</span></div>
+              <div className="flex justify-between border-b border-zinc-800 pb-2"><span className="text-zinc-500 text-xs">Bank</span><span className="text-zinc-200 text-sm font-medium">{newBen.bank}</span></div>
+              <div className="flex justify-between"><span className="text-zinc-500 text-xs">Account</span><span className="text-zinc-200 text-sm font-medium">{newBen.account}</span></div>
            </div>
            <div className="flex gap-3">
-              <button 
-                onClick={() => setView('add')} 
-                className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 py-2.5 rounded-lg text-sm font-medium"
-              >
-                Edit
-              </button>
-              <button 
-                onClick={confirmAdd} 
-                className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2.5 rounded-lg text-sm font-medium"
-              >
-                Confirm Add
-              </button>
+              <button onClick={() => setView('add')} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 py-2.5 rounded-lg text-sm font-medium">Edit</button>
+              <button onClick={confirmAdd} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2.5 rounded-lg text-sm font-medium">Confirm Add</button>
            </div>
         </div>
       )}
@@ -159,32 +115,15 @@ export const BeneficiaryManager = ({ beneficiaries, setBeneficiaries }: Benefici
               {deleteId === b.id ? (
                 <div className="flex items-center gap-2 animate-in slide-in-from-right-4 duration-200">
                   <span className="text-xs text-red-400 font-medium mr-1">Delete?</span>
-                  <button 
-                    onClick={() => handleDelete(b.id)} 
-                    className="p-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-md transition-colors"
-                  >
-                    <Check size={14} />
-                  </button>
-                  <button 
-                    onClick={() => setDeleteId(null)} 
-                    className="p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-md transition-colors"
-                  >
-                    <X size={14} />
-                  </button>
+                  <button onClick={() => handleDelete(b.id)} className="p-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-md transition-colors"><Check size={14} /></button>
+                  <button onClick={() => setDeleteId(null)} className="p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-md transition-colors"><X size={14} /></button>
                 </div>
               ) : (
-                <button 
-                  onClick={() => setDeleteId(b.id)} 
-                  className="p-2 text-zinc-600 hover:text-red-400 hover:bg-red-400/10 rounded-md transition-colors"
-                >
-                  <Trash2 size={16} />
-                </button>
+                <button onClick={() => setDeleteId(b.id)} className="p-2 text-zinc-600 hover:text-red-400 hover:bg-red-400/10 rounded-md transition-colors"><Trash2 size={16} /></button>
               )}
             </div>
           ))}
-          {beneficiaries.length === 0 && (
-            <div className="p-8 text-center text-zinc-500 text-xs">No beneficiaries found.</div>
-          )}
+          {beneficiaries.length === 0 && <div className="p-8 text-center text-zinc-500 text-xs">No beneficiaries found.</div>}
         </div>
       )}
     </Card>

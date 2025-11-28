@@ -1,53 +1,25 @@
-"use client"
-import React, { useState, useEffect, useRef } from 'react';
+"use client";
+
+import React, { useState } from 'react';
+import { CopilotKit, useFrontendTool, useCopilotReadable } from "@copilotkit/react-core";
 import { 
   Wallet, 
   Send, 
-  PieChart, 
-  Users, 
-  ArrowRightLeft, 
-  ChevronDown, 
-  Bot,
   User,
-  Sparkles,
-  Loader2,
-  Trash2,
+  ChevronDown,
   Check,
-  AlertCircle,
-  Plus,
-  X
+  Loader2
 } from 'lucide-react';
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer,
-  Cell
-} from 'recharts';
 
-/**
- * =========================================================================
- * ⚠️ PRODUCTION IMPLEMENTATION GUIDE
- * =========================================================================
- * * 1. INSTALLATION:
- * npm install @copilotkit/react-core @copilotkit/react-ui
- * * * 2. IMPORTS (Uncomment in production):
- * import { CopilotKit, useFrontendTool, useCopilotReadable } from "@copilotkit/react-core";
- * import "@copilotkit/react-ui/styles.css";
- * * * 3. REMOVE MOCKS:
- * Delete the `const CopilotKit` and mock hooks below when moving to production.
- */
+// Component imports
+import { Sidebar } from '../components/Sidebar';
+import { BalanceCard } from '../components/BalanceCard';
+import { BeneficiaryManager } from '../components/BeneficiaryManager';
+import { TransferMoney } from '../components/TransferMoney';
+import { SpendingChart } from '../components/SpendingChart';
+import { BankingChat } from '../components/BankingChat';
 
-// --- MOCK COPILOTKIT FOR PREVIEW ---
-const CopilotKit = ({ children }: any) => <>{children}</>;
-// Mock hook that just runs the effect to simulate registration and returns options for local usage
-const useFrontendTool = (options: any) => { useEffect(() => {}, [options.name]); return options; };
-const useCopilotReadable = (options: any) => {};
-
-// --- 1. DATA & TYPES ---
+// --- DATA & TYPES ---
 const users = [
   { id: 'usr_01', name: 'Alice Chen', avatar: 'A' },
   { id: 'usr_02', name: 'Bob Smith', avatar: 'B' },
@@ -58,320 +30,11 @@ const models = [
   { id: 'claude-3', name: 'Claude 3 Opus' },
 ];
 
-const spendingData = [
-  { name: 'Housing', value: 2000, color: '#3b82f6' },
-  { name: 'Food', value: 800, color: '#10b981' },
-  { name: 'Transport', value: 400, color: '#f59e0b' },
-  { name: 'Utilities', value: 300, color: '#6366f1' },
-  { name: 'Ent.', value: 200, color: '#ec4899' },
-];
-
 const DEFAULT_BENEFICIARIES = [
   { id: 1, name: 'Sarah Wilson', account: '**** 4521', bank: 'Chase' },
   { id: 2, name: 'Mike Ross', account: '**** 8892', bank: 'BOA' },
   { id: 3, name: 'Jessica Pearson', account: '**** 1234', bank: 'Citi' },
 ];
-
-// --- 2. SHARED COMPONENTS ---
-
-const Card = ({ children, className = "" }: { children: React.ReactNode, className?: string }) => (
-  <div className={`bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden shadow-2xl ${className}`}>
-    {children}
-  </div>
-);
-
-// --- 3. TOOL COMPONENTS ---
-
-// Tool: Balance Card
-const BalanceCard = ({ userId }: { userId: string }) => {
-  return (
-    <Card className="p-6 max-w-md w-full animate-in fade-in zoom-in-95 duration-300 mx-auto md:mx-0">
-      <div className="flex justify-between items-start mb-6">
-        <div>
-          <p className="text-zinc-400 text-sm font-medium">Total Balance</p>
-          <h2 className="text-4xl font-bold text-white mt-1">$124,592.45</h2>
-        </div>
-        <div className="p-3 bg-blue-500/10 rounded-full border border-blue-500/20">
-          <Wallet className="w-6 h-6 text-blue-500" />
-        </div>
-      </div>
-      <div className="space-y-3">
-        <div className="bg-zinc-950/50 p-4 rounded-lg border border-zinc-800 flex justify-between items-center group hover:border-zinc-700 transition-colors">
-          <div>
-            <span className="text-zinc-300 text-sm block">Checking Account</span>
-            <span className="text-zinc-500 text-xs">**** 4521 • Chase Bank</span>
-          </div>
-          <span className="text-white font-medium">$14,230.20</span>
-        </div>
-        <div className="bg-zinc-950/50 p-4 rounded-lg border border-zinc-800 flex justify-between items-center group hover:border-zinc-700 transition-colors">
-          <div>
-            <span className="text-zinc-300 text-sm block">Savings Vault</span>
-            <span className="text-zinc-500 text-xs">**** 8892 • High Yield</span>
-          </div>
-          <span className="text-white font-medium">$110,362.25</span>
-        </div>
-      </div>
-    </Card>
-  );
-};
-
-// Tool: Beneficiary List
-const BeneficiaryManager = ({ beneficiaries, setBeneficiaries }: { beneficiaries: any[], setBeneficiaries: any }) => {
-  const [view, setView] = useState<'list' | 'add' | 'confirm-add'>('list');
-  const [deleteId, setDeleteId] = useState<number | null>(null);
-  const [newBen, setNewBen] = useState({ name: '', bank: '', account: '' });
-
-  const handleDelete = (id: number) => {
-    setBeneficiaries((prev: any[]) => prev.filter(b => b.id !== id));
-    setDeleteId(null);
-  };
-
-  const handleAddSubmit = () => {
-    if (newBen.name && newBen.bank) setView('confirm-add');
-  };
-
-  const confirmAdd = () => {
-    setBeneficiaries((prev: any[]) => [...prev, { id: Date.now(), ...newBen }]);
-    setNewBen({ name: '', bank: '', account: '' });
-    setView('list');
-  };
-
-  return (
-    <Card className="p-0 max-w-md w-full animate-in fade-in zoom-in-95 duration-300 mx-auto md:mx-0">
-      <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/50">
-        <h3 className="font-semibold text-zinc-100 flex items-center gap-2">
-          <Users size={16} className="text-orange-400" />
-          {view === 'list' ? 'Beneficiaries' : 'Add New Contact'}
-        </h3>
-        {view === 'list' && (
-          <button 
-            onClick={() => setView('add')}
-            className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-md transition-colors flex items-center gap-1"
-          >
-            <Plus size={12} /> Add New
-          </button>
-        )}
-        {view !== 'list' && (
-          <button onClick={() => setView('list')} className="text-xs text-zinc-400 hover:text-white">Cancel</button>
-        )}
-      </div>
-
-      {view === 'add' && (
-        <div className="p-6 space-y-4">
-           <div>
-             <label className="text-xs text-zinc-500 uppercase font-bold tracking-wider">Full Name</label>
-             <input value={newBen.name} onChange={e => setNewBen({...newBen, name: e.target.value})} className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 mt-1 text-sm text-white focus:border-blue-500 outline-none" placeholder="e.g. John Doe" />
-           </div>
-           <div>
-             <label className="text-xs text-zinc-500 uppercase font-bold tracking-wider">Bank Name</label>
-             <input value={newBen.bank} onChange={e => setNewBen({...newBen, bank: e.target.value})} className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 mt-1 text-sm text-white focus:border-blue-500 outline-none" placeholder="e.g. Chase Bank" />
-           </div>
-           <div>
-             <label className="text-xs text-zinc-500 uppercase font-bold tracking-wider">Account Number (Last 4)</label>
-             <input value={newBen.account} onChange={e => setNewBen({...newBen, account: e.target.value})} className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 mt-1 text-sm text-white focus:border-blue-500 outline-none" placeholder="e.g. **** 1234" />
-           </div>
-           <button onClick={handleAddSubmit} disabled={!newBen.name || !newBen.bank} className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white py-3 rounded-lg font-medium transition-colors mt-2">Review Details</button>
-        </div>
-      )}
-
-      {view === 'confirm-add' && (
-        <div className="p-6">
-           <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4 mb-4 flex gap-3 items-start">
-              <AlertCircle className="w-5 h-5 text-yellow-500 shrink-0 mt-0.5" />
-              <div>
-                <h4 className="text-sm font-bold text-yellow-500 mb-1">Confirm New Contact</h4>
-                <p className="text-xs text-yellow-200/70">Please verify details before adding.</p>
-              </div>
-           </div>
-           <div className="bg-zinc-950 rounded-lg border border-zinc-800 p-4 space-y-3 mb-6">
-              <div className="flex justify-between border-b border-zinc-800 pb-2"><span className="text-zinc-500 text-xs">Name</span><span className="text-zinc-200 text-sm font-medium">{newBen.name}</span></div>
-              <div className="flex justify-between border-b border-zinc-800 pb-2"><span className="text-zinc-500 text-xs">Bank</span><span className="text-zinc-200 text-sm font-medium">{newBen.bank}</span></div>
-              <div className="flex justify-between"><span className="text-zinc-500 text-xs">Account</span><span className="text-zinc-200 text-sm font-medium">{newBen.account}</span></div>
-           </div>
-           <div className="flex gap-3">
-              <button onClick={() => setView('add')} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 py-2.5 rounded-lg text-sm font-medium">Edit</button>
-              <button onClick={confirmAdd} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2.5 rounded-lg text-sm font-medium">Confirm Add</button>
-           </div>
-        </div>
-      )}
-
-      {view === 'list' && (
-        <div className="divide-y divide-zinc-800">
-          {beneficiaries.map((b) => (
-            <div key={b.id} className="p-4 flex items-center justify-between hover:bg-zinc-800/30 transition-colors">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-400">
-                  <span className="font-semibold">{b.name.charAt(0)}</span>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-zinc-200">{b.name}</p>
-                  <p className="text-xs text-zinc-500">{b.bank} • {b.account}</p>
-                </div>
-              </div>
-              {deleteId === b.id ? (
-                <div className="flex items-center gap-2 animate-in slide-in-from-right-4 duration-200">
-                  <span className="text-xs text-red-400 font-medium mr-1">Delete?</span>
-                  <button onClick={() => handleDelete(b.id)} className="p-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-md transition-colors"><Check size={14} /></button>
-                  <button onClick={() => setDeleteId(null)} className="p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-md transition-colors"><X size={14} /></button>
-                </div>
-              ) : (
-                <button onClick={() => setDeleteId(b.id)} className="p-2 text-zinc-600 hover:text-red-400 hover:bg-red-400/10 rounded-md transition-colors"><Trash2 size={16} /></button>
-              )}
-            </div>
-          ))}
-          {beneficiaries.length === 0 && <div className="p-8 text-center text-zinc-500 text-xs">No beneficiaries found.</div>}
-        </div>
-      )}
-    </Card>
-  );
-};
-
-// Tool: Transfer Money
-const TransferMoney = ({ beneficiaries }: { beneficiaries: any[] }) => {
-  const [step, setStep] = useState<'input' | 'confirm' | 'processing' | 'success'>('input');
-  const [formData, setFormData] = useState({ recipientId: '', amount: '' });
-
-  const handleReview = (e: React.FormEvent) => {
-    e.preventDefault();
-    if(formData.recipientId && formData.amount) setStep('confirm');
-  };
-
-  const handleConfirm = () => {
-    setStep('processing');
-    setTimeout(() => setStep('success'), 2000);
-  };
-
-  const reset = () => {
-    setFormData({ recipientId: '', amount: '' });
-    setStep('input');
-  };
-
-  const recipientName = beneficiaries.find(b => b.id.toString() === formData.recipientId)?.name || 'Unknown Recipient';
-
-  return (
-    <Card className="p-6 max-w-md w-full animate-in fade-in zoom-in-95 duration-300 mx-auto md:mx-0">
-      <h3 className="font-semibold text-zinc-100 mb-6 flex items-center gap-2">
-        <ArrowRightLeft className={`w-5 h-5 ${step === 'success' ? 'text-green-500' : 'text-blue-500'}`} />
-        {step === 'input' ? 'Transfer Money' : step === 'success' ? 'Transfer Successful' : 'Confirm Transfer'}
-      </h3>
-
-      {step === 'input' && (
-        <form onSubmit={handleReview} className="space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-zinc-500 mb-1.5 uppercase tracking-wide">Recipient</label>
-            <div className="relative">
-              <select value={formData.recipientId} onChange={(e) => setFormData({...formData, recipientId: e.target.value})} className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 pl-3 text-sm text-zinc-300 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none appearance-none">
-                <option value="">Select a beneficiary</option>
-                {beneficiaries.map(b => (
-                  <option key={b.id} value={b.id}>{b.name} ({b.bank})</option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-3 top-3.5 text-zinc-500 pointer-events-none" size={14} />
-            </div>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-zinc-500 mb-1.5 uppercase tracking-wide">Amount (USD)</label>
-            <div className="relative">
-              <span className="absolute left-3 top-3 text-zinc-500">$</span>
-              <input type="number" value={formData.amount} onChange={(e) => setFormData({...formData, amount: e.target.value})} className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 pl-7 text-sm text-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none placeholder:text-zinc-600" placeholder="0.00" />
-            </div>
-          </div>
-          <button type="submit" disabled={!formData.amount || !formData.recipientId} className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium py-3 rounded-lg transition-all mt-4">Review Transfer</button>
-        </form>
-      )}
-
-      {step === 'confirm' && (
-        <div className="space-y-6 animate-in zoom-in-95 duration-200">
-           <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 space-y-4">
-              <div className="flex justify-between items-center"><span className="text-zinc-500 text-xs uppercase tracking-wide">To</span><div className="text-right"><p className="text-white font-medium text-sm">{recipientName}</p><p className="text-zinc-500 text-xs">**** 4521</p></div></div>
-              <div className="h-px bg-zinc-800 w-full"></div>
-              <div className="flex justify-between items-center"><span className="text-zinc-500 text-xs uppercase tracking-wide">Amount</span><p className="text-2xl font-bold text-white">${formData.amount}</p></div>
-              <div className="flex justify-between items-center bg-blue-500/10 p-2 rounded-lg border border-blue-500/20"><span className="text-blue-400 text-xs">Fee</span><span className="text-blue-400 text-xs font-medium">$0.00</span></div>
-           </div>
-           <div className="flex gap-3">
-              <button onClick={() => setStep('input')} className="flex-1 py-3 rounded-lg border border-zinc-700 text-zinc-300 hover:bg-zinc-800 transition-colors text-sm font-medium">Cancel</button>
-              <button onClick={handleConfirm} className="flex-[2] py-3 rounded-lg bg-green-600 hover:bg-green-500 text-white shadow-lg shadow-green-900/20 transition-all text-sm font-medium flex items-center justify-center gap-2">Confirm & Send <ArrowRightLeft size={16} /></button>
-           </div>
-        </div>
-      )}
-
-      {(step === 'processing' || step === 'success') && (
-        <div className="flex flex-col items-center justify-center py-8 text-center animate-in fade-in duration-300">
-          {step === 'processing' ? (
-             <div className="relative"><div className="w-16 h-16 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mb-4"></div><div className="absolute inset-0 flex items-center justify-center"><div className="w-2 h-2 bg-blue-500 rounded-full"></div></div></div>
-          ) : (
-             <div className="w-16 h-16 bg-green-500/10 text-green-500 rounded-full flex items-center justify-center mb-4 border border-green-500/20 animate-in zoom-in duration-300"><Check size={32} /></div>
-          )}
-          <h4 className="text-white font-medium text-lg mb-1">{step === 'processing' ? 'Processing...' : 'Transfer Sent!'}</h4>
-          <p className="text-zinc-500 text-sm max-w-[200px]">{step === 'processing' ? 'Securely communicating with the bank servers.' : `You successfully sent $${formData.amount} to ${recipientName}.`}</p>
-          {step === 'success' && <button onClick={reset} className="mt-6 text-blue-400 hover:text-blue-300 text-sm font-medium">Make another transfer</button>}
-        </div>
-      )}
-    </Card>
-  );
-};
-
-// Tool: Spending Chart
-const SpendingChart = () => (
-  <Card className="p-6 max-w-lg w-full animate-in fade-in zoom-in-95 duration-300 mx-auto md:mx-0">
-    <h3 className="font-semibold text-zinc-100 mb-2 flex items-center gap-2">
-      <PieChart className="w-5 h-5 text-purple-500" />
-      Spending Analysis
-    </h3>
-    <p className="text-zinc-500 text-sm mb-6">Monthly expenses by category</p>
-    <div className="h-64 w-full">
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={spendingData} layout="vertical" margin={{ left: 10, right: 10 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#27272a" horizontal={false} />
-          <XAxis type="number" stroke="#52525b" fontSize={10} tickFormatter={(val) => `$${val}`} />
-          <YAxis dataKey="name" type="category" stroke="#a1a1aa" fontSize={11} width={60} />
-          <Tooltip contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', color: '#fff', borderRadius: '8px' }} itemStyle={{ color: '#fff' }} cursor={{ fill: '#27272a', opacity: 0.4 }} />
-          <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={24}>
-            {spendingData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
-  </Card>
-);
-
-// --- 4. CHAT & LAYOUT ---
-
-const BankingChat = ({ messages, isTyping, thinkingStep, onSend }: any) => {
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, isTyping, thinkingStep]);
-
-  return (
-    <div className="flex-1 overflow-y-auto p-4 space-y-6 pb-32 scrollbar-hide">
-      {messages.map((m: any) => (
-        <div key={m.id} className={`flex gap-4 ${m.role === 'user' ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-2`}>
-          {m.role === 'assistant' && (
-            <div className="w-8 h-8 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center shrink-0 mt-1">
-              <Sparkles size={14} className="text-blue-500" />
-            </div>
-          )}
-          <div className={`flex flex-col gap-2 max-w-[90%] md:max-w-[75%]`}>
-            {m.content && (
-              <div className={`rounded-2xl px-5 py-3 shadow-sm ${m.role === 'user' ? 'bg-blue-600 text-white rounded-br-sm' : 'bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-bl-sm'}`}>
-                <p className="text-sm leading-relaxed whitespace-pre-wrap">{m.content}</p>
-                <p className={`text-[10px] mt-1.5 opacity-50 ${m.role === 'user' ? 'text-blue-200' : 'text-zinc-500'}`}>{m.timestamp.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
-              </div>
-            )}
-            {m.component && <div className="mt-1">{m.component}</div>}
-          </div>
-        </div>
-      ))}
-      
-      {isTyping && (
-        <div className="flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300 ml-1">
-          <div className="relative flex items-center justify-center w-8 h-8 rounded-full bg-zinc-900 border border-zinc-800"><Loader2 className="w-4 h-4 text-blue-500 animate-spin" /></div>
-          <span className="text-xs font-medium text-zinc-400 animate-pulse">{thinkingStep}</span>
-        </div>
-      )}
-      <div ref={messagesEndRef} />
-    </div>
-  );
-};
 
 // --- MAIN PAGE CONTENT ---
 function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSelectedModelId }: any) {
@@ -393,102 +56,65 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
 
     addMessage('user', prompt);
     setInputValue("");
-    setIsTyping(true);
-    setThinkingStep("Processing request...");
-
-    const lowerInput = prompt.toLowerCase();
-    
-    // Simulate AI Processing
-    setTimeout(() => setThinkingStep("Analyzing intent..."), 600);
-    setTimeout(() => {
-      // Improved Keyword Logic
-      if (lowerInput.includes('transfer') || lowerInput.includes('send') || lowerInput.includes('pay')) {
-        setThinkingStep("Loading transfer protocols...");
-      } else if (lowerInput.includes('beneficiary') || lowerInput.includes('friend') || lowerInput.includes('contact')) {
-        setThinkingStep("Decrypting contact list...");
-      } else if (lowerInput.includes('spending') || lowerInput.includes('chart')) {
-        setThinkingStep("Aggregating transaction data...");
-      } else {
-        setThinkingStep("Generating response...");
-      }
-    }, 1200);
-
-    // Simulate AI Response
-    setTimeout(() => {
-      setIsTyping(false);
-      let content = "I can help with that.";
-      let component = undefined;
-
-      // PRIORITY 1: TRANSFER (Pass beneficiaries state down)
-      if (lowerInput.includes('transfer') || lowerInput.includes('send') || lowerInput.includes('pay')) {
-        content = "I've opened the transfer form for you.";
-        component = <TransferMoney beneficiaries={beneficiaries} />;
-      } 
-      // PRIORITY 2: BENEFICIARIES (Pass shared state)
-      else if (lowerInput.includes('beneficiary') || lowerInput.includes('friend') || lowerInput.includes('contact') || lowerInput.includes('people')) {
-        content = "Here is your list of saved beneficiaries.";
-        component = <BeneficiaryManager beneficiaries={beneficiaries} setBeneficiaries={setBeneficiaries} />;
-      }
-      // PRIORITY 3: SPENDING
-      else if (lowerInput.includes('spending') || lowerInput.includes('chart') || lowerInput.includes('graph')) {
-        content = "Here is a breakdown of your spending this month.";
-        component = <SpendingChart />;
-      } 
-      // PRIORITY 4: BALANCE
-      else if (lowerInput.includes('balance') || lowerInput.includes('account') || lowerInput.includes('money')) {
-        content = "Here is your current account balance overview.";
-        component = <BalanceCard userId={selectedUserId} />;
-      }
-
-      addMessage('assistant', content, component);
-    }, 2200);
+    // CopilotKit will handle the AI response via frontend tools
   };
 
   // --- COPILOT ACTIONS (Updated to use Shared State) ---
-  // In a real implementation, these would automatically call the component render functions
-  // For the demo, we are simulating the calls in handleSend above
-  
   useCopilotReadable({ description: "List of available beneficiaries", value: beneficiaries });
+  
   useFrontendTool({ 
     name: "showBeneficiaries", 
     description: "Display beneficiaries", 
     parameters: [],
-    render: () => <BeneficiaryManager beneficiaries={beneficiaries} setBeneficiaries={setBeneficiaries} /> 
+    handler: async () => addMessage('assistant', "Here are your beneficiaries.", <BeneficiaryManager beneficiaries={beneficiaries} setBeneficiaries={setBeneficiaries} />) 
   });
+  
   useFrontendTool({ 
     name: "transferMoney", 
     description: "Show transfer form", 
     parameters: [],
-    render: () => <TransferMoney beneficiaries={beneficiaries} /> 
+    handler: async () => addMessage('assistant', "Transfer form ready.", <TransferMoney beneficiaries={beneficiaries} />) 
   });
+  
   useFrontendTool({ 
     name: "showBalance", 
     description: "Show account balance", 
     parameters: [],
-    render: () => <BalanceCard userId={selectedUserId} /> 
+    handler: async () => addMessage('assistant', "Here is your current balance.", <BalanceCard userId={selectedUserId} />) 
   });
+  
   useFrontendTool({ 
     name: "showSpending", 
     description: "Show spending analysis", 
     parameters: [],
-    render: () => <SpendingChart /> 
+    handler: async () => addMessage('assistant', "Here is your spending breakdown.", <SpendingChart />) 
   });
 
   return (
-    <div className="flex h-screen w-full bg-[#09090b] text-zinc-200 font-sans overflow-hidden">
+    <div className="flex h-screen bg-zinc-950 text-zinc-200 font-sans overflow-hidden">
       {/* SIDEBAR */}
-      <aside className="hidden md:flex w-64 flex-col border-r border-zinc-800 bg-zinc-900/50 backdrop-blur-sm p-4">
-        <div className="flex items-center gap-2 mb-8 px-2">
-           <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/20"><Wallet className="w-5 h-5 text-white" /></div>
-           <span className="font-bold text-lg tracking-tight text-white">BankAgent</span>
-        </div>
-        <div className="space-y-6">
-          <div>
-            <h3 className="text-xs font-semibold text-zinc-500 mb-3 tracking-wider uppercase">Quick Access</h3>
-            <div className="space-y-1">
-              <button onClick={() => handleSend(undefined, "Show my balance")} className="w-full text-left px-3 py-2 rounded-lg hover:bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 text-sm transition-colors flex items-center gap-2"><Wallet size={14} /> Balance</button>
-              <button onClick={() => handleSend(undefined, "Transfer money")} className="w-full text-left px-3 py-2 rounded-lg hover:bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 text-sm transition-colors flex items-center gap-2"><ArrowRightLeft size={14} /> Transfer</button>
-              <button onClick={() => handleSend(undefined, "Show spending")} className="w-full text-left px-3 py-2 rounded-lg hover:bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 text-sm transition-colors flex items-center gap-2"><PieChart size={14} /> Reports</button>
+      <aside className="w-64 bg-zinc-900/40 border-r border-zinc-800 hidden md:flex flex-col backdrop-blur-sm">
+        <div className="p-6">
+          <div className="flex items-center gap-2 mb-8">
+             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/20">
+               <Wallet className="w-5 h-5 text-white" />
+             </div>
+             <span className="font-bold text-lg tracking-tight text-white">BankAgent</span>
+          </div>
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-xs font-semibold text-zinc-500 mb-3 tracking-wider uppercase">Quick Access</h3>
+              <div className="space-y-1">
+                <button onClick={() => handleSend(undefined, "Show my balance")} className="w-full text-left px-3 py-2 rounded-lg hover:bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 text-sm transition-colors flex items-center gap-2">
+                  <Wallet size={14} /> Balance
+                </button>
+                <button onClick={() => handleSend(undefined, "Transfer money")} className="w-full text-left px-3 py-2 rounded-lg hover:bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 text-sm transition-colors flex items-center gap-2">
+                  <ArrowRightLeft size={14} /> Transfer
+                </button>
+                <button onClick={() => handleSend(undefined, "Show spending")} className="w-full text-left px-3 py-2 rounded-lg hover:bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 text-sm transition-colors flex items-center gap-2">
+                  <PieChart size={14} /> Reports
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -497,8 +123,13 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
       {/* MAIN CONTENT */}
       <main className="flex-1 flex flex-col relative min-w-0">
         <header className="h-16 flex items-center justify-between px-6 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-md z-20 shrink-0">
-          <div className="md:hidden flex items-center gap-3"><Wallet className="w-5 h-5 text-blue-500" /><span className="font-bold">BankAgent</span></div>
-          <div className="hidden md:block text-sm text-zinc-500">Dashboard / <span className="text-zinc-200">Assistant</span></div>
+          <div className="md:hidden flex items-center gap-3">
+            <Wallet className="w-5 h-5 text-blue-500" />
+            <span className="font-bold">BankAgent</span>
+          </div>
+          <div className="hidden md:block text-sm text-zinc-500">
+            Dashboard / <span className="text-zinc-200">Assistant</span>
+          </div>
           <div className="flex items-center gap-4">
              <div className="hidden sm:flex items-center gap-2">
                 <div className="relative group">
@@ -543,7 +174,7 @@ export default function App() {
   const [selectedUserId, setSelectedUserId] = useState(users[0].id);
   const [selectedModelId, setSelectedModelId] = useState(models[0].id);
   return (
-    <CopilotKit runtimeUrl="/api/copilotkit">
+    <CopilotKit runtimeUrl="/api/copilotkit" agent="bankbot" properties={{ user_id: selectedUserId }}>
       <PageContent selectedUserId={selectedUserId} setSelectedUserId={setSelectedUserId} selectedModelId={selectedModelId} setSelectedModelId={setSelectedModelId} />
     </CopilotKit>
   );

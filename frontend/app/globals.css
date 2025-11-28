@@ -1,31 +1,28 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
-@layer base {
-
-    /* 1. Force Full Height & Dark Theme 
-     Critical for the "flex h-screen" layout to work on all devices without scrolling the body 
-  */
-    html,
-    body,
-    #root {
-        height: 100%;
-        width: 100%;
-        margin: 0;
-        padding: 0;
-        overflow: hidden;
-        /* Prevent background scrolling */
-        background-color: #09090b;
-        color: #ffffff;
-        font-family: 'Inter', system-ui, -apple-system, sans-serif;
-        -webkit-font-smoothing: antialiased;
-    }
+@theme {
+    /* You can customize your theme here if needed */
 }
 
-/* 2. Custom Scrollbar Hiding 
-   Used by the "scrollbar-hide" class in the chat area 
+/* 1. Force Full Height & Dark Theme 
+  Critical for the "flex h-screen" layout to work properly.
 */
+html,
+body {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    /* Prevents double scrollbars */
+    background-color: #09090b;
+    /* Matches bg-zinc-950 */
+    color: #ffffff;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* 2. Custom Scrollbar Hiding */
 .scrollbar-hide::-webkit-scrollbar {
     display: none;
 }
@@ -37,7 +34,7 @@
     /* Firefox */
 }
 
-/* 3. Animation Utilities */
+/* 3. Animations */
 @keyframes fadeIn {
     from {
         opacity: 0;
@@ -52,4 +49,12 @@
 
 .animate-fade-in {
     animation: fadeIn 0.5s ease-out forwards;
+}
+
+/* 4. Animation Utilities (Tailwind v4 way)
+  If you need these as classes, you can define them here or use the @theme block
+*/
+.animate-in {
+    animation-duration: 300ms;
+    animation-fill-mode: forwards;
 }

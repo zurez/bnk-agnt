@@ -9,14 +9,10 @@ import {
   Tooltip, 
   ResponsiveContainer,
   Cell
-} from "recharts";
+} from 'recharts';
 
-interface CardProps {
-  children: React.ReactNode;
-  className?: string;
-}
-
-const Card = ({ children, className = "" }: CardProps) => (
+// Shared Card component
+const Card = ({ children, className = "" }: { children: React.ReactNode, className?: string }) => (
   <div className={`bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden shadow-2xl ${className}`}>
     {children}
   </div>
@@ -43,16 +39,7 @@ export const SpendingChart = () => (
           <CartesianGrid strokeDasharray="3 3" stroke="#27272a" horizontal={false} />
           <XAxis type="number" stroke="#52525b" fontSize={10} tickFormatter={(val) => `$${val}`} />
           <YAxis dataKey="name" type="category" stroke="#a1a1aa" fontSize={11} width={60} />
-          <Tooltip 
-            contentStyle={{ 
-              backgroundColor: '#18181b', 
-              borderColor: '#27272a', 
-              color: '#fff', 
-              borderRadius: '8px' 
-            }} 
-            itemStyle={{ color: '#fff' }} 
-            cursor={{ fill: '#27272a', opacity: 0.4 }} 
-          />
+          <Tooltip contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', color: '#fff', borderRadius: '8px' }} itemStyle={{ color: '#fff' }} cursor={{ fill: '#27272a', opacity: 0.4 }} />
           <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={24}>
             {spendingData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
           </Bar>
