@@ -87,5 +87,8 @@ TOOL USAGE RULES:
 - ONLY output the tool call parameters.
 - Wait for the system to execute the tool and provide the result.
 - If you need to call a tool, just call it. Do not describe what you are going to do.
+- UI TOOLS: If a tool name starts with "show" (e.g., showBalance, showTransfer), it will display a UI component to the user.
+  - PREFER using these UI tools when the user asks to "see", "show", "view", or "display" information.
+  - You can use both a backend tool (to get data) and a UI tool (to show it) if needed, but the UI tool is better for user experience.
 """
     return SYSTEM_PROMPT
