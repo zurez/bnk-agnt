@@ -1,4 +1,3 @@
-"use client"
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Wallet, 
@@ -30,21 +29,44 @@ import {
 
 /**
  * =========================================================================
- * ⚠️ PRODUCTION IMPLEMENTATION GUIDE
+ * ⚠️ PRODUCTION IMPLEMENTATION GUIDE (DO NOT COPY BLINDLY)
+ * =========================================================================
+ * * This code contains SIMULATION LOGIC to demonstrate the UI without a backend.
+ * When implementing this with the real CopilotKit, follow these rules:
+ * * 1. DO NOT copy the `handleSend` simulation logic (timeouts, manual "Thinking..." states).
+ * - The real `CopilotKit` handles LLM latency and streaming automatically.
+ * * 2. DO NOT manually inject components into the chat using `setMessages`.
+ * - In the demo, we use `addMessage(..., <Component />)`. 
+ * - In production, use the `render` property of `useFrontendTool` to let 
+ * CopilotKit render the component automatically when the tool is called.
+ * * Example Production Usage:
+ * useFrontendTool({
+ * name: "showBalance",
+ * description: "Show the user's balance",
+ * parameters: [],
+ * render: (props) => (
+ * <BalanceCard userId={selectedUserId} />
+ * )
+ * });
+ * * 3. DO NOT use the mock `CopilotKit` provider defined below.
+ * - Import the real provider: `import { CopilotKit } from "@copilotkit/react-core";`
+ * * =========================================================================
+ */
+
+/**
+ * =========================================================================
+ * 🤖 COPILOTKIT INTEGRATION INSTRUCTIONS
  * =========================================================================
  * * 1. INSTALLATION:
  * npm install @copilotkit/react-core @copilotkit/react-ui
- * * * 2. IMPORTS (Uncomment in production):
+ * * 2. IMPORTS (Uncomment in production):
  * import { CopilotKit, useFrontendTool, useCopilotReadable } from "@copilotkit/react-core";
  * import "@copilotkit/react-ui/styles.css";
- * * * 3. REMOVE MOCKS:
- * Delete the `const CopilotKit` and mock hooks below when moving to production.
  */
 
 // --- MOCK COPILOTKIT FOR PREVIEW ---
 const CopilotKit = ({ children }: any) => <>{children}</>;
-// Mock hook that just runs the effect to simulate registration and returns options for local usage
-const useFrontendTool = (options: any) => { useEffect(() => {}, [options.name]); return options; };
+const useFrontendTool = (options: any) => { useEffect(() => {}, [options.name]); };
 const useCopilotReadable = (options: any) => {};
 
 // --- 1. DATA & TYPES ---
@@ -80,7 +102,7 @@ const Card = ({ children, className = "" }: { children: React.ReactNode, classNa
   </div>
 );
 
-// --- 3. TOOL COMPONENTS ---
+// --- 3. TOOL COMPONENTS (Now accepting Props for Shared State) ---
 
 // Tool: Balance Card
 const BalanceCard = ({ userId }: { userId: string }) => {
@@ -398,7 +420,6 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
 
     const lowerInput = prompt.toLowerCase();
     
-    // Simulate AI Processing
     setTimeout(() => setThinkingStep("Analyzing intent..."), 600);
     setTimeout(() => {
       // Improved Keyword Logic
@@ -413,7 +434,6 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
       }
     }, 1200);
 
-    // Simulate AI Response
     setTimeout(() => {
       setIsTyping(false);
       let content = "I can help with that.";
@@ -445,50 +465,37 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
   };
 
   // --- COPILOT ACTIONS (Updated to use Shared State) ---
-  // In a real implementation, these would automatically call the component render functions
-  // For the demo, we are simulating the calls in handleSend above
-  
   useCopilotReadable({ description: "List of available beneficiaries", value: beneficiaries });
   useFrontendTool({ 
     name: "showBeneficiaries", 
     description: "Display beneficiaries", 
     parameters: [],
-    render: () => <BeneficiaryManager beneficiaries={beneficiaries} setBeneficiaries={setBeneficiaries} /> 
+    handler: async () => addMessage('assistant', "Here are your beneficiaries.", <BeneficiaryManager beneficiaries={beneficiaries} setBeneficiaries={setBeneficiaries} />) 
   });
   useFrontendTool({ 
     name: "transferMoney", 
     description: "Show transfer form", 
     parameters: [],
-    render: () => <TransferMoney beneficiaries={beneficiaries} /> 
-  });
-  useFrontendTool({ 
-    name: "showBalance", 
-    description: "Show account balance", 
-    parameters: [],
-    render: () => <BalanceCard userId={selectedUserId} /> 
-  });
-  useFrontendTool({ 
-    name: "showSpending", 
-    description: "Show spending analysis", 
-    parameters: [],
-    render: () => <SpendingChart /> 
+    handler: async () => addMessage('assistant', "Transfer form ready.", <TransferMoney beneficiaries={beneficiaries} />) 
   });
 
   return (
-    <div className="flex h-screen w-full bg-[#09090b] text-zinc-200 font-sans overflow-hidden">
+    <div className="flex h-screen bg-zinc-950 text-zinc-200 font-sans overflow-hidden">
       {/* SIDEBAR */}
-      <aside className="hidden md:flex w-64 flex-col border-r border-zinc-800 bg-zinc-900/50 backdrop-blur-sm p-4">
-        <div className="flex items-center gap-2 mb-8 px-2">
-           <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/20"><Wallet className="w-5 h-5 text-white" /></div>
-           <span className="font-bold text-lg tracking-tight text-white">BankAgent</span>
-        </div>
-        <div className="space-y-6">
-          <div>
-            <h3 className="text-xs font-semibold text-zinc-500 mb-3 tracking-wider uppercase">Quick Access</h3>
-            <div className="space-y-1">
-              <button onClick={() => handleSend(undefined, "Show my balance")} className="w-full text-left px-3 py-2 rounded-lg hover:bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 text-sm transition-colors flex items-center gap-2"><Wallet size={14} /> Balance</button>
-              <button onClick={() => handleSend(undefined, "Transfer money")} className="w-full text-left px-3 py-2 rounded-lg hover:bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 text-sm transition-colors flex items-center gap-2"><ArrowRightLeft size={14} /> Transfer</button>
-              <button onClick={() => handleSend(undefined, "Show spending")} className="w-full text-left px-3 py-2 rounded-lg hover:bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 text-sm transition-colors flex items-center gap-2"><PieChart size={14} /> Reports</button>
+      <aside className="w-64 bg-zinc-900/40 border-r border-zinc-800 hidden md:flex flex-col backdrop-blur-sm">
+        <div className="p-6">
+          <div className="flex items-center gap-2 mb-8">
+             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/20"><Wallet className="w-5 h-5 text-white" /></div>
+             <span className="font-bold text-lg tracking-tight text-white">BankAgent</span>
+          </div>
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-xs font-semibold text-zinc-500 mb-3 tracking-wider uppercase">Quick Access</h3>
+              <div className="space-y-1">
+                <button onClick={() => handleSend(undefined, "Show my balance")} className="w-full text-left px-3 py-2 rounded-lg hover:bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 text-sm transition-colors flex items-center gap-2"><Wallet size={14} /> Balance</button>
+                <button onClick={() => handleSend(undefined, "Transfer money")} className="w-full text-left px-3 py-2 rounded-lg hover:bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 text-sm transition-colors flex items-center gap-2"><ArrowRightLeft size={14} /> Transfer</button>
+                <button onClick={() => handleSend(undefined, "Show spending")} className="w-full text-left px-3 py-2 rounded-lg hover:bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 text-sm transition-colors flex items-center gap-2"><PieChart size={14} /> Reports</button>
+              </div>
             </div>
           </div>
         </div>
