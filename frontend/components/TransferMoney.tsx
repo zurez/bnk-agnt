@@ -8,18 +8,49 @@ const Card = ({ children, className = "" }: { children: React.ReactNode, classNa
   </div>
 );
 
-interface Beneficiary {
-  id: number;
+interface Account {
+  id: string;
   name: string;
-  account: string;
-  bank: string;
+  type?: string;
+  balance?: number;
+  currency?: string;
+}
+
+interface Beneficiary {
+  id: string;
+  nickname?: string;
+  name?: string;
+  account_number?: string;
+  account?: string;
+  bank_name?: string;
+  bank?: string;
 }
 
 interface TransferMoneyProps {
-  beneficiaries: Beneficiary[];
+  accounts?: Account[];
+  beneficiaries?: Beneficiary[];
+  onProposeTransfer?: (fromAccount: string, toBeneficiary: string, amount: number, description: string) => Promise<any>;
+  onProposeInternalTransfer?: (fromAccount: string, toAccount: string, amount: number, description: string) => Promise<any>;
 }
 
-export const TransferMoney = ({ beneficiaries }: TransferMoneyProps) => {
+// Default demo data
+const DEFAULT_BENEFICIARIES: Beneficiary[] = [
+  { id: '1', nickname: 'Sarah Wilson', name: 'Sarah Wilson', account_number: '**** 4521', account: '**** 4521', bank_name: 'Chase', bank: 'Chase' },
+  { id: '2', nickname: 'Mike Ross', name: 'Mike Ross', account_number: '**** 8892', account: '**** 8892', bank_name: 'BOA', bank: 'BOA' },
+  { id: '3', nickname: 'Jessica Pearson', name: 'Jessica Pearson', account_number: '**** 1234', account: '**** 1234', bank_name: 'Citi', bank: 'Citi' },
+];
+
+export const TransferMoney = ({ 
+  accounts,
+  beneficiaries: propBeneficiaries,
+  onProposeTransfer,
+  onProposeInternalTransfer
+}: TransferMoneyProps) => {
+  // Use provided beneficiaries or fallback to demo data
+  const beneficiaries = propBeneficiaries && propBeneficiaries.length > 0 
+    ? propBeneficiaries 
+    : DEFAULT_BENEFICIARIES;
+
   const [step, setStep] = useState<'input' | 'confirm' | 'processing' | 'success'>('input');
   const [formData, setFormData] = useState({ recipientId: '', amount: '' });
 
@@ -28,8 +59,23 @@ export const TransferMoney = ({ beneficiaries }: TransferMoneyProps) => {
     if(formData.recipientId && formData.amount) setStep('confirm');
   };
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     setStep('processing');
+    
+    if (onProposeTransfer && accounts && accounts.length > 0) {
+      try {
+        const beneficiary = beneficiaries.find(b => b.id === formData.recipientId);
+        await onProposeTransfer(
+          accounts[0].name,
+          beneficiary?.nickname || beneficiary?.name || '',
+          parseFloat(formData.amount),
+          ''
+        );
+      } catch (e) {
+        console.error('Transfer failed:', e);
+      }
+    }
+    
     setTimeout(() => setStep('success'), 2000);
   };
 
@@ -38,7 +84,12 @@ export const TransferMoney = ({ beneficiaries }: TransferMoneyProps) => {
     setStep('input');
   };
 
-  const recipientName = beneficiaries.find(b => b.id.toString() === formData.recipientId)?.name || 'Unknown Recipient';
+  // Helper to get display name
+  const getName = (b: Beneficiary) => b.nickname || b.name || 'Unknown';
+  const getBank = (b: Beneficiary) => b.bank_name || b.bank || '';
+  
+  const recipientName = beneficiaries.find(b => b.id === formData.recipientId);
+  const displayName = recipientName ? getName(recipientName) : 'Unknown Recipient';
 
   return (
     <Card className="p-6 max-w-md w-full animate-in fade-in zoom-in-95 duration-300 mx-auto md:mx-0">
@@ -55,7 +106,7 @@ export const TransferMoney = ({ beneficiaries }: TransferMoneyProps) => {
               <select value={formData.recipientId} onChange={(e) => setFormData({...formData, recipientId: e.target.value})} className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 pl-3 text-sm text-zinc-300 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none appearance-none">
                 <option value="">Select a beneficiary</option>
                 {beneficiaries.map(b => (
-                  <option key={b.id} value={b.id}>{b.name} ({b.bank})</option>
+                  <option key={b.id} value={b.id}>{getName(b)} ({getBank(b)})</option>
                 ))}
               </select>
               <ChevronDown className="absolute right-3 top-3.5 text-zinc-500 pointer-events-none" size={14} />
@@ -75,7 +126,7 @@ export const TransferMoney = ({ beneficiaries }: TransferMoneyProps) => {
       {step === 'confirm' && (
         <div className="space-y-6 animate-in zoom-in-95 duration-200">
            <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 space-y-4">
-              <div className="flex justify-between items-center"><span className="text-zinc-500 text-xs uppercase tracking-wide">To</span><div className="text-right"><p className="text-white font-medium text-sm">{recipientName}</p><p className="text-zinc-500 text-xs">**** 4521</p></div></div>
+              <div className="flex justify-between items-center"><span className="text-zinc-500 text-xs uppercase tracking-wide">To</span><div className="text-right"><p className="text-white font-medium text-sm">{displayName}</p><p className="text-zinc-500 text-xs">**** 4521</p></div></div>
               <div className="h-px bg-zinc-800 w-full"></div>
               <div className="flex justify-between items-center"><span className="text-zinc-500 text-xs uppercase tracking-wide">Amount</span><p className="text-2xl font-bold text-white">${formData.amount}</p></div>
               <div className="flex justify-between items-center bg-blue-500/10 p-2 rounded-lg border border-blue-500/20"><span className="text-blue-400 text-xs">Fee</span><span className="text-blue-400 text-xs font-medium">$0.00</span></div>
@@ -95,7 +146,7 @@ export const TransferMoney = ({ beneficiaries }: TransferMoneyProps) => {
              <div className="w-16 h-16 bg-green-500/10 text-green-500 rounded-full flex items-center justify-center mb-4 border border-green-500/20 animate-in zoom-in duration-300"><Check size={32} /></div>
           )}
           <h4 className="text-white font-medium text-lg mb-1">{step === 'processing' ? 'Processing...' : 'Transfer Sent!'}</h4>
-          <p className="text-zinc-500 text-sm max-w-[200px]">{step === 'processing' ? 'Securely communicating with the bank servers.' : `You successfully sent $${formData.amount} to ${recipientName}.`}</p>
+          <p className="text-zinc-500 text-sm max-w-[200px]">{step === 'processing' ? 'Securely communicating with the bank servers.' : `You successfully sent $${formData.amount} to ${displayName}.`}</p>
           {step === 'success' && <button onClick={reset} className="mt-6 text-blue-400 hover:text-blue-300 text-sm font-medium">Make another transfer</button>}
         </div>
       )}

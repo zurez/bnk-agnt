@@ -90,7 +90,7 @@ async def propose_transfer(
     result = await mcp_server.propose_transfer(
         user_id, from_account_name, to_beneficiary_nickname, amount, description
     )
-    return json.dumps(result, default=serialize)
+    return json.dumps(result, default=custom_serializer)
 
 
 @tool
@@ -114,7 +114,7 @@ async def propose_internal_transfer(
     result = await mcp_server.propose_internal_transfer(
         user_id, from_account_name, to_account_name, amount, description
     )
-    return json.dumps(result, default=serialize)
+    return json.dumps(result, default=custom_serializer)
 
 @tool
 async def approve_transfer(user_id: str, transfer_id: str) -> str:
@@ -126,7 +126,7 @@ async def approve_transfer(user_id: str, transfer_id: str) -> str:
         transfer_id: The transfer/proposal ID to approve
     """
     result = await mcp_server.approve_transfer(user_id, transfer_id)
-    return json.dumps(result, default=serialize)
+    return json.dumps(result, default=custom_serializer)
 
 @tool
 async def reject_transfer(user_id: str, transfer_id: str, reason: str = "") -> str:
@@ -139,7 +139,7 @@ async def reject_transfer(user_id: str, transfer_id: str, reason: str = "") -> s
         reason: Optional reason for rejection
     """
     result = await mcp_server.reject_transfer(user_id, transfer_id, reason)
-    return json.dumps(result, default=serialize)
+    return json.dumps(result, default=custom_serializer)
 
 
 @tool
@@ -151,7 +151,7 @@ async def get_pending_transfers(user_id: str) -> str:
         user_id: The user's ID
     """
     result = await mcp_server.get_pending_transfers(user_id)
-    return json.dumps(result, default=serialize)
+    return json.dumps(result, default=custom_serializer)
 
 
 @tool
@@ -164,7 +164,7 @@ async def get_transfer_history(user_id: str, limit: int = 10) -> str:
         limit: Maximum transfers to return (default 10)
     """
     result = await mcp_server.get_transfer_history(user_id, limit)
-    return json.dumps(result, default=serialize)
+    return json.dumps(result, default=custom_serializer)
 
 @tool
 async def get_beneficiaries(user_id: str) -> str:
@@ -178,7 +178,7 @@ async def get_beneficiaries(user_id: str) -> str:
         List of beneficiaries with their details (nickname, account, bank)
     """
     result = await mcp_server.get_beneficiaries(user_id)
-    return json.dumps(result, default=serialize)
+    return json.dumps(result, default=custom_serializer)
 
 @tool
 async def add_beneficiary(
@@ -195,7 +195,7 @@ async def add_beneficiary(
         nickname: Friendly name for this beneficiary
     """
     result = await mcp_server.add_beneficiary(user_id, beneficiary_account_number, nickname)
-    return json.dumps(result, default=serialize)
+    return json.dumps(result, default=custom_serializer)
 
 @tool
 async def remove_beneficiary(user_id: str, beneficiary_id: str) -> str:
@@ -207,4 +207,4 @@ async def remove_beneficiary(user_id: str, beneficiary_id: str) -> str:
         beneficiary_id: The beneficiary ID to remove
     """
     result = await mcp_server.remove_beneficiary(user_id, beneficiary_id)
-    return json.dumps(result, default=serialize)
+    return json.dumps(result, default=custom_serializer)

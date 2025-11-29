@@ -18,7 +18,6 @@ import {
   Bot
 } from 'lucide-react';
 
-// Component imports
 import { Sidebar } from '../components/Sidebar';
 import { BalanceCard } from '../components/BalanceCard';
 import { BeneficiaryManager } from '../components/BeneficiaryManager';
@@ -36,13 +35,6 @@ interface UserType {
 interface ModelType {
   id: string;
   name: string;
-}
-
-interface Beneficiary {
-  id: number;
-  name: string;
-  account: string;
-  bank: string;
 }
 
 interface ChatMessage {
@@ -68,12 +60,6 @@ const models: ModelType[] = [
   { id: 'qwen3-32b', name: 'Qwen3 32B' },
 ];
 
-const DEFAULT_BENEFICIARIES: Beneficiary[] = [
-  { id: 1, name: 'Sarah Wilson', account: '**** 4521', bank: 'Chase' },
-  { id: 2, name: 'Mike Ross', account: '**** 8892', bank: 'BOA' },
-  { id: 3, name: 'Jessica Pearson', account: '**** 1234', bank: 'Citi' },
-];
-
 // --- MAIN PAGE CONTENT ---
 interface PageContentProps {
   selectedUserId: string;
@@ -85,10 +71,14 @@ interface PageContentProps {
 function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSelectedModelId }: PageContentProps) {
   const selectedUser = users.find(u => u.id === selectedUserId);
   const [inputValue, setInputValue] = useState("");
-  const [beneficiaries, setBeneficiaries] = useState<Beneficiary[]>(DEFAULT_BENEFICIARIES);
   
   // Local messages for components from frontend actions
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
+  
+  // Cache for fetched data to pass to components
+  const [cachedAccounts, setCachedAccounts] = useState<any[]>([]);
+  const [cachedBeneficiaries, setCachedBeneficiaries] = useState<any[]>([]);
+  const [cachedSpending, setCachedSpending] = useState<any[]>([]);
 
   // Use CopilotChat hook
   const { appendMessage, isLoading, visibleMessages } = useCopilotChat();
@@ -99,7 +89,7 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
       { 
         id: 'init', 
         role: 'assistant', 
-        content: "Hello! I'm your Banking Assistant. How can I help you today?", 
+        content: "Hello! I'm your Phoenix Digital Bank Assistant. How can I help you today?", 
         timestamp: new Date(0)
       }
     ];
@@ -203,76 +193,180 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
 
   // --- COPILOT READABLE STATE ---
   useCopilotReadable({ 
-    description: "List of available beneficiaries for money transfers", 
-    value: beneficiaries 
+    description: "Current user ID for banking operations", 
+    value: selectedUserId 
+  });
+  
+  useCopilotReadable({ 
+    description: "Cached account balances", 
+    value: cachedAccounts 
+  });
+  
+  useCopilotReadable({ 
+    description: "Cached beneficiaries list", 
+    value: cachedBeneficiaries 
   });
   
   // --- COPILOT ACTIONS (Frontend Tools) ---
-  // These are exposed to the LangGraph agent via CopilotKit
+  useCopilotAction({ 
+    name: "showBalance", 
+    description: "Display account balances UI. Use when user wants to SEE/VIEW their balance. Pass the accounts data from get_balance tool.", 
+    parameters: [
+      { 
+        name: "accounts", 
+        type: "object[]" as const, 
+        description: "Array of account objects with id, name, type, balance, currency fields",
+        required: false
+      }
+    ],
+    handler: async ({ accounts }: { accounts?: any[] }) => {
+      const accountData = accounts || cachedAccounts;
+      if (accounts) setCachedAccounts(accounts);
+      addLocalMessage(
+        'assistant', 
+        "Here are your account balances:", 
+        <BalanceCard userId={selectedUserId} accounts={accountData} />
+      );
+      return "Displayed account balances to user";
+    }
+  });
+  
   useCopilotAction({ 
     name: "showBeneficiaries", 
-    description: "Display the list of beneficiaries that the user can transfer money to. Call this when user wants to SEE or VIEW their beneficiaries.", 
-    parameters: [],
-    handler: async () => {
-      console.log("🎯 showBeneficiaries handler called!");
+    description: "Display beneficiaries list UI. Use when user wants to SEE/VIEW their beneficiaries. Pass the beneficiaries data from get_beneficiaries tool.", 
+    parameters: [
+      { 
+        name: "beneficiaries", 
+        type: "object[]" as const, 
+        description: "Array of beneficiary objects with id, nickname, account_number, bank_name, is_internal fields",
+        required: false
+      }
+    ],
+    handler: async ({ beneficiaries }: { beneficiaries?: any[] }) => {
+      const benData = beneficiaries || cachedBeneficiaries;
+      if (beneficiaries) setCachedBeneficiaries(beneficiaries);
       addLocalMessage(
         'assistant', 
         "Here are your beneficiaries:", 
-        <BeneficiaryManager beneficiaries={beneficiaries} setBeneficiaries={setBeneficiaries} />
+        <BeneficiaryManager beneficiaries={benData} />
       );
-      return "Displayed beneficiaries list to the user";
-    }
-  });
-  
-  useCopilotAction({ 
-    name: "transferMoney", 
-    description: "Show the money transfer form to allow user to send money. Call this when user wants to make a transfer.", 
-    parameters: [],
-    handler: async () => {
-      console.log("🎯 transferMoney handler called!");
-      addLocalMessage(
-        'assistant', 
-        "Here's the transfer form:", 
-        <TransferMoney beneficiaries={beneficiaries} />
-      );
-      return "Displayed transfer money form to the user";
-    }
-  });
-  
-  useCopilotAction({ 
-    name: "showBalance", 
-    description: "Show the user's current account balance with a visual UI component. ALWAYS call this when user asks to show, see, view, or display their balance.", 
-    parameters: [],
-    handler: async () => {
-      console.log("🎯 showBalance handler called!");
-      addLocalMessage(
-        'assistant', 
-        "Here is your current balance:", 
-        <BalanceCard userId={selectedUserId} />
-      );
-      return "Displayed account balance to the user";
+      return "Displayed beneficiaries list to user";
     }
   });
   
   useCopilotAction({ 
     name: "showSpending", 
-    description: "Show spending analysis and breakdown chart. Call this when user wants to SEE or VIEW their spending.", 
-    parameters: [],
-    handler: async () => {
-      console.log("🎯 showSpending handler called!");
+    description: "Display spending analysis chart. Use when user wants to SEE/VIEW their spending breakdown. Pass spending data from get_spend_by_category tool.", 
+    parameters: [
+      { 
+        name: "spendingData", 
+        type: "object[]" as const, 
+        description: "Array of spending objects with category and total fields",
+        required: false
+      },
+      { 
+        name: "currency", 
+        type: "string" as const, 
+        description: "Currency code (e.g. AED)",
+        required: false
+      }
+    ],
+    handler: async ({ spendingData, currency }: { spendingData?: any[]; currency?: string }) => {
+      const spending = spendingData || cachedSpending;
+      if (spendingData) setCachedSpending(spendingData);
       addLocalMessage(
         'assistant', 
         "Here is your spending breakdown:", 
-        <SpendingChart />
+        <SpendingChart spendingData={spending} currency={currency || 'AED'} />
       );
-      return "Displayed spending analysis chart to the user";
+      return "Displayed spending analysis to user";
     }
   });
 
-  // Debug: Log visibleMessages
-  React.useEffect(() => {
-    console.log('visibleMessages:', visibleMessages);
-  }, [visibleMessages]);
+  useCopilotAction({ 
+    name: "showTransferForm", 
+    description: "Display transfer money form. Use when user wants to MAKE a transfer. Requires accounts and beneficiaries data.", 
+    parameters: [
+      { 
+        name: "accounts", 
+        type: "object[]" as const, 
+        description: "User's accounts for 'from' selection",
+        required: false
+      },
+      { 
+        name: "beneficiaries", 
+        type: "object[]" as const, 
+        description: "User's beneficiaries for 'to' selection",
+        required: false
+      }
+    ],
+    handler: async ({ accounts, beneficiaries }: { accounts?: any[]; beneficiaries?: any[] }) => {
+      const accts = accounts || cachedAccounts;
+      const bens = beneficiaries || cachedBeneficiaries;
+      if (accounts) setCachedAccounts(accounts);
+      if (beneficiaries) setCachedBeneficiaries(beneficiaries);
+      addLocalMessage(
+        'assistant', 
+        "Here's the transfer form:", 
+        <TransferMoney accounts={accts} beneficiaries={bens} />
+      );
+      return "Displayed transfer form to user";
+    }
+  });
+
+  useCopilotAction({ 
+    name: "showPendingTransfers", 
+    description: "Display pending transfers that need approval. Pass data from get_pending_transfers tool.", 
+    parameters: [
+      { 
+        name: "transfers", 
+        type: "object[]" as const, 
+        description: "Array of pending transfer objects",
+        required: false
+      }
+    ],
+    handler: async ({ transfers }: { transfers?: any[] }) => {
+      const pendingList = transfers || [];
+      if (pendingList.length === 0) {
+        addLocalMessage('assistant', "You have no pending transfers awaiting approval.");
+      } else {
+        const content = pendingList.map((t: any) => 
+          `• ${t.amount} ${t.currency || 'AED'} from ${t.from_account} to ${t.to_destination} - ID: ${t.id}`
+        ).join('\n');
+        addLocalMessage(
+          'assistant', 
+          `You have ${pendingList.length} pending transfer(s):\n\n${content}\n\nSay "approve transfer [ID]" to approve or "reject transfer [ID]" to reject.`
+        );
+      }
+      return "Displayed pending transfers to user";
+    }
+  });
+
+  useCopilotAction({ 
+    name: "showTransactions", 
+    description: "Display recent transactions. Pass data from get_transactions tool.", 
+    parameters: [
+      { 
+        name: "transactions", 
+        type: "object[]" as const, 
+        description: "Array of transaction objects",
+        required: false
+      }
+    ],
+    handler: async ({ transactions }: { transactions?: any[] }) => {
+      const txList = transactions || [];
+      if (txList.length === 0) {
+        addLocalMessage('assistant', "No transactions found for the specified criteria.");
+      } else {
+        const content = txList.slice(0, 10).map((t: any) => {
+          const sign = t.type === 'credit' || t.type === 'transfer_in' ? '+' : '-';
+          return `• ${sign}${t.amount} ${t.currency || 'AED'} - ${t.description || t.category} (${new Date(t.timestamp).toLocaleDateString()})`;
+        }).join('\n');
+        addLocalMessage('assistant', `Here are your recent transactions:\n\n${content}`);
+      }
+      return "Displayed transactions to user";
+    }
+  });
 
   return (
     <div className="flex h-screen bg-zinc-950 text-zinc-200 font-sans overflow-hidden">
@@ -345,7 +439,7 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
   );
 }
 
-// --- APP ENTRY ---
+
 export default function App() {
   const DEFAULT_USER_ID = users[0].id; 
   const DEFAULT_MODEL_ID = models[0].id;
@@ -354,7 +448,11 @@ export default function App() {
   const [selectedModelId, setSelectedModelId] = useState(DEFAULT_MODEL_ID);
   
   return (
-    <CopilotKit runtimeUrl="/api/copilotkit" agent="bankbot" properties={{ user_id: selectedUserId, model: selectedModelId }}>
+    <CopilotKit 
+      runtimeUrl="/api/copilotkit" 
+      agent="bankbot" 
+      properties={{ user_id: selectedUserId, model_name: selectedModelId }}
+    >
       <PageContent 
         selectedUserId={selectedUserId} 
         setSelectedUserId={setSelectedUserId} 

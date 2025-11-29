@@ -181,7 +181,7 @@ class BankingMCPServer:
         amount: float,
         description: str = ""
     ) -> dict:
-            with engine.begin() as conn:
+        with engine.begin() as conn:
             from_account = conn.execute(
                 select(accounts).where(
                     and_(
