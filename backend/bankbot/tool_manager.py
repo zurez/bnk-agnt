@@ -1,5 +1,6 @@
 from typing import Any, Dict, List
 from langchain_core.tools import StructuredTool
+from pydantic import BaseModel, Field
 
 
 MCP_TOOL_NAMES = {      
@@ -28,6 +29,58 @@ FRONTEND_TOOL_ALLOWLIST = {
 }
 
 
+class ShowBalanceInput(BaseModel):
+    accounts: str = Field(
+        description="JSON string of accounts array from get_balance tool. REQUIRED - you must pass the data you received from get_balance."
+    )
+
+class ShowBeneficiariesInput(BaseModel):
+    beneficiaries: str = Field(
+        description="JSON string of beneficiaries array from get_beneficiaries tool. REQUIRED."
+    )
+
+class ShowSpendingInput(BaseModel):
+    spendingData: str = Field(
+        description="JSON string of spending data array from get_spend_by_category tool. REQUIRED."
+    )
+
+class ShowTransactionsInput(BaseModel):
+    transactions: str = Field(
+        description="JSON string of transactions array from get_transactions tool. REQUIRED."
+    )
+
+class ShowTransferFormInput(BaseModel):
+    accounts: str = Field(
+        description="JSON string of accounts array from get_balance tool. REQUIRED."
+    )
+    beneficiaries: str = Field(
+        description="JSON string of beneficiaries array from get_beneficiaries tool. REQUIRED."
+    )
+
+class ShowPendingTransfersInput(BaseModel):
+    transfers: str = Field(
+        description="JSON string of pending transfers array from get_pending_transfers tool. REQUIRED."
+    )
+
+FRONTEND_TOOL_SCHEMAS = {
+    "showBalance": ShowBalanceInput,
+    "showBeneficiaries": ShowBeneficiariesInput,
+    "showSpending": ShowSpendingInput,
+    "showTransactions": ShowTransactionsInput,
+    "showTransferForm": ShowTransferFormInput,
+    "showPendingTransfers": ShowPendingTransfersInput,
+}
+
+FRONTEND_TOOL_DESCRIPTIONS = {
+    "showBalance": "Display account balances UI component. You MUST pass the accounts data from get_balance as a JSON string.",
+    "showBeneficiaries": "Display beneficiaries list UI component. You MUST pass the beneficiaries data from get_beneficiaries as a JSON string.",
+    "showSpending": "Display spending chart UI component. You MUST pass the spending data from get_spend_by_category as a JSON string.",
+    "showTransactions": "Display transactions list UI component. You MUST pass the transactions data from get_transactions as a JSON string.",
+    "showTransferForm": "Display transfer form UI component. You MUST pass accounts from get_balance AND beneficiaries from get_beneficiaries as JSON strings.",
+    "showPendingTransfers": "Display pending transfers list UI component. You MUST pass the transfers data from get_pending_transfers as a JSON string.",
+}
+
+
 class ToolManager:
     """Manages frontend and backend tools for the agent."""
     
@@ -37,11 +90,10 @@ class ToolManager:
     def get_all_tools(self, state: Dict[str, Any]) -> List[Any]:
         """Get all tools (frontend + backend) for the agent."""
         frontend = self._create_frontend_tools(state)
-        print(f"[ToolManager] Frontend tools: {len(frontend)}, Backend tools: {len(self.backend_tools)}")
         return frontend + self.backend_tools
     
     def _create_frontend_tools(self, state: Dict[str, Any]) -> List[StructuredTool]:
-        """Extract frontend tools from CopilotKit state and convert to LangChain tools."""
+        """Extract frontend tools from CopilotKit state and convert to LangChain tools with proper schemas."""
         actions = state.get("copilotkit", {}).get("actions", [])
         tools, seen = [], set()
         
@@ -51,18 +103,32 @@ class ToolManager:
                 continue
             
             seen.add(name)
-            tools.append(StructuredTool.from_function(
-                func=self._make_handler(name),
-                name=name,
-                description=action.get("description", f"Display {name} UI component"),
-            ))
-            print(f"[ToolManager] Added frontend tool: {name}")
+            
+            # Use our schema if available, otherwise create a basic tool
+            schema = FRONTEND_TOOL_SCHEMAS.get(name)
+            description = FRONTEND_TOOL_DESCRIPTIONS.get(name, action.get("description", f"Display {name} UI component"))
+            
+            if schema:
+                tool = StructuredTool.from_function(
+                    func=self._make_handler(name),
+                    name=name,
+                    description=description,
+                    args_schema=schema,
+                )
+            else:
+                tool = StructuredTool.from_function(
+                    func=self._make_handler(name),
+                    name=name,
+                    description=description,
+                )
+            
+            tools.append(tool)
         
         return tools
     
     @staticmethod
     def _make_handler(name: str):
-        def handler() -> str:
+        def handler(**kwargs) -> str:
             return f"UI component '{name}' displayed to user."
         return handler
     

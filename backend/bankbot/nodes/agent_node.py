@@ -74,10 +74,8 @@ async def agent_node(state: AgentState):
     user_id = state.get("user_id", "unknown")
     model_name = state.get("model_name", "gpt-4o")
     
-    
     llm = get_llm(model_name)
     all_tools = tool_manager.get_all_tools(state)
-
     
     llm_with_tools = llm.bind_tools(all_tools, parallel_tool_calls=False)
     

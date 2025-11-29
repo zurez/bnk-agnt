@@ -4,7 +4,8 @@ from bankbot.tool_manager import ToolManager
 
 
 def should_continue(state: AgentState) -> str:
-    return "end" if state.get("intent") == "blocked" else "agent"
+    intent = state.get("intent")
+    return "end" if intent == "blocked" else "agent"
 
 
 def route_tools(state: AgentState):
@@ -14,4 +15,5 @@ def route_tools(state: AgentState):
     if not hasattr(last_message, "tool_calls") or not last_message.tool_calls:
         return END
     
-    return "tools" if ToolManager.has_backend_tools(last_message.tool_calls) else END
+    has_backend = ToolManager.has_backend_tools(last_message.tool_calls)
+    return "tools" if has_backend else END

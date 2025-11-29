@@ -219,16 +219,27 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
         required: false
       }
     ],
-    handler: async ({ accounts }: { accounts?: any[] }) => {
-      const accountData = accounts || cachedAccounts;
-      if (accounts) setCachedAccounts(accounts);
-      addLocalMessage(
-        'assistant', 
-        "Here are your account balances:", 
-        <BalanceCard userId={selectedUserId} accounts={accountData} />
-      );
-      return "Displayed account balances to user";
+    handler: async ({ accounts }: { accounts?: any[] | string }) => {
+    // Parse if it's a string
+    let accountData = accounts;
+    if (typeof accounts === 'string') {
+      try {
+        accountData = JSON.parse(accounts);
+      } catch (e) {
+        console.error('Failed to parse accounts:', e);
+        accountData = cachedAccounts;
+      }
     }
+    accountData = accountData || cachedAccounts;
+    if (Array.isArray(accountData)) setCachedAccounts(accountData);
+    
+    addLocalMessage(
+      'assistant', 
+      "Here are your account balances:", 
+      <BalanceCard userId={selectedUserId} accounts={Array.isArray(accountData) ? accountData : []} />
+    );
+    return "Displayed account balances to user";
+  }
   });
   
   useCopilotAction({ 
