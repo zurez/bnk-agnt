@@ -1,9 +1,31 @@
 from typing import Any, Dict, List
 from langchain_core.tools import StructuredTool
 
-MCP_TOOL_NAMES = {"get_balance", "get_transactions", "get_spend_by_category", "propose_transfer"}
 
-FRONTEND_TOOL_ALLOWLIST = {"showBalance", "showBeneficiaries", "showTransfer", "showSpending", "transferMoney"}
+MCP_TOOL_NAMES = {      
+    "get_balance",
+    "get_transactions",
+    "get_spend_by_category",
+    "get_beneficiaries",
+    "add_beneficiary",
+    "remove_beneficiary",
+    "propose_transfer",
+    "propose_internal_transfer",
+    "approve_transfer",
+    "reject_transfer",
+    "get_pending_transfers",
+    "get_transfer_history",
+}
+
+FRONTEND_TOOL_ALLOWLIST = {
+    "showBalance",
+    "showBeneficiaries",
+    "showSpending",
+    "showTransactions",
+    "showTransferForm",
+    "showPendingTransfers",
+    "transferMoney",
+}
 
 
 class ToolManager:
@@ -14,7 +36,9 @@ class ToolManager:
     
     def get_all_tools(self, state: Dict[str, Any]) -> List[Any]:
         """Get all tools (frontend + backend) for the agent."""
-        return self._create_frontend_tools(state) + self.backend_tools
+        frontend = self._create_frontend_tools(state)
+        print(f"[ToolManager] Frontend tools: {len(frontend)}, Backend tools: {len(self.backend_tools)}")
+        return frontend + self.backend_tools
     
     def _create_frontend_tools(self, state: Dict[str, Any]) -> List[StructuredTool]:
         """Extract frontend tools from CopilotKit state and convert to LangChain tools."""
@@ -30,15 +54,16 @@ class ToolManager:
             tools.append(StructuredTool.from_function(
                 func=self._make_handler(name),
                 name=name,
-                description=action.get("description", f"Display {name} UI"),
+                description=action.get("description", f"Display {name} UI component"),
             ))
+            print(f"[ToolManager] Added frontend tool: {name}")
         
         return tools
     
     @staticmethod
     def _make_handler(name: str):
         def handler() -> str:
-            return f"UI component '{name}' displayed."
+            return f"UI component '{name}' displayed to user."
         return handler
     
     @staticmethod
