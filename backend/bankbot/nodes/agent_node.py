@@ -9,7 +9,22 @@ from langchain_sambanova import ChatSambaNova
 from bankbot.state import AgentState
 from bankbot.nodes.helpers.prompt_helper import get_system_prompt
 from bankbot.tool_manager import ToolManager
-from mcp.mcp_tool import get_balance, get_spend_by_category, get_transactions, propose_transfer
+
+from mcp.mcp_tool import (
+    get_balance,
+    get_transactions,
+    get_spend_by_category,
+    get_beneficiaries,
+    add_beneficiary,
+    remove_beneficiary,
+
+    propose_transfer,
+    propose_internal_transfer,
+    approve_transfer,
+    reject_transfer,
+    get_pending_transfers,
+    get_transfer_history,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +38,25 @@ SAMBANOVA_MODELS = {
     "qwen3-32b": "Qwen3-32B",
 }
 
-MCP_TOOLS = [get_balance, get_transactions, get_spend_by_category, propose_transfer]
+MCP_TOOLS = [
+    get_balance,
+    get_transactions,
+    get_spend_by_category,
+    get_beneficiaries,
+    add_beneficiary,
+    remove_beneficiary,
+    propose_transfer,
+    propose_internal_transfer,
+    approve_transfer,
+    reject_transfer,
+    get_pending_transfers,
+    get_transfer_history,
+]
+
 tool_manager = ToolManager(backend_tools=MCP_TOOLS)
 
 
 def get_llm(model_name: str):
-    """Get the appropriate LLM based on model name."""
     if model_name not in SAMBANOVA_MODELS:
         return ChatOpenAI(model="gpt-4-turbo", temperature=0, streaming=True)
     
@@ -46,8 +74,11 @@ async def agent_node(state: AgentState):
     user_id = state.get("user_id", "unknown")
     model_name = state.get("model_name", "gpt-4o")
     
+    
     llm = get_llm(model_name)
     all_tools = tool_manager.get_all_tools(state)
+
+    
     llm_with_tools = llm.bind_tools(all_tools, parallel_tool_calls=False)
     
     system_message = f"{get_system_prompt()}\n\nCurrent User ID: {user_id}"
@@ -58,6 +89,7 @@ async def agent_node(state: AgentState):
             response = None
             async for chunk in llm_with_tools.astream(history):
                 response = chunk if response is None else response + chunk
+            
             return {"messages": [response]}
             
         except Exception as e:
