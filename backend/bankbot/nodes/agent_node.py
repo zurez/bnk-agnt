@@ -105,5 +105,8 @@ async def agent_node(state: AgentState):
             if "400" in error_msg:
                 return {"messages": [AIMessage(content="I encountered an error processing your request. Please try rephrasing.")]}
             
-            logger.error(f"Unhandled error in agent_node: {e}", exc_info=True)
-            return {"messages": [AIMessage(content=f"Technical issue: {e}. Please try again.")]}
+
+            error_type = type(e).__name__
+            logger.error(f"Unhandled error in agent_node for user {user_id[:8]}...: {error_type}")
+            
+            return {"messages": [AIMessage(content="I encountered a technical issue processing your request. Please try again later.")]}
