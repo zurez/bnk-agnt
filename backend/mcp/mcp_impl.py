@@ -128,19 +128,34 @@ class BankingMCPServer:
         
         with engine.begin() as conn:
 
+            # Check for ANY existing beneficiary (active or inactive)
             existing = conn.execute(
                 select(beneficiaries).where(
                     and_(
                         beneficiaries.c.user_id == user_id,
-                        beneficiaries.c.account_number == account_number,
-                        beneficiaries.c.is_active == True
+                        beneficiaries.c.account_number == account_number
                     )
                 )
             ).first()
             
-            if existing:
-                return {"success": False, "error": "Beneficiary already exists"}
+            # If beneficiary exists and is active, return error
+            if existing and existing.is_active:
+                return {"success": False, "error": f"Beneficiary '{existing.nickname}' already exists"}
             
+            # If beneficiary exists but is inactive, reactivate it
+            if existing and not existing.is_active:
+                conn.execute(
+                    update(beneficiaries)
+                    .where(beneficiaries.c.id == existing.id)
+                    .values(
+                        is_active=True,
+                        nickname=nickname,  # Update nickname in case it changed
+                        updated_at=datetime.utcnow()
+                    )
+                )
+                return {"success": True, "beneficiary_id": str(existing.id), "message": f"Beneficiary '{nickname}' reactivated successfully"}
+            
+            # If no existing beneficiary, create new one
             new_id = str(uuid.uuid4())
             conn.execute(
                 insert(beneficiaries).values(
@@ -156,6 +171,7 @@ class BankingMCPServer:
             )
             
             return {"success": True, "beneficiary_id": new_id, "message": f"Beneficiary '{nickname}' added successfully"}
+
 
     async def remove_beneficiary(self, user_id: str, beneficiary_id: str) -> dict:
         """Soft delete a beneficiary."""
