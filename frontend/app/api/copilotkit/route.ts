@@ -18,8 +18,6 @@ const runtime = new CopilotRuntime({
 });
 
 export const POST = async (req: NextRequest) => {
-  console.log("Received request at /api/copilotkit");
-  console.log("Backend URL:", `${process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"}/bankbot/`);
   
   try {
     const { handleRequest } = copilotRuntimeNextJSAppRouterEndpoint({

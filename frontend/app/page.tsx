@@ -18,7 +18,6 @@ import {
   Bot
 } from 'lucide-react';
 
-// Component imports
 import { Sidebar } from '../components/Sidebar';
 import { BalanceCard } from '../components/BalanceCard';
 import { BeneficiaryManager } from '../components/BeneficiaryManager';
@@ -36,13 +35,6 @@ interface UserType {
 interface ModelType {
   id: string;
   name: string;
-}
-
-interface Beneficiary {
-  id: number;
-  name: string;
-  account: string;
-  bank: string;
 }
 
 interface ChatMessage {
@@ -68,12 +60,6 @@ const models: ModelType[] = [
   { id: 'qwen3-32b', name: 'Qwen3 32B' },
 ];
 
-const DEFAULT_BENEFICIARIES: Beneficiary[] = [
-  { id: 1, name: 'Sarah Wilson', account: '**** 4521', bank: 'Chase' },
-  { id: 2, name: 'Mike Ross', account: '**** 8892', bank: 'BOA' },
-  { id: 3, name: 'Jessica Pearson', account: '**** 1234', bank: 'Citi' },
-];
-
 // --- MAIN PAGE CONTENT ---
 interface PageContentProps {
   selectedUserId: string;
@@ -85,10 +71,14 @@ interface PageContentProps {
 function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSelectedModelId }: PageContentProps) {
   const selectedUser = users.find(u => u.id === selectedUserId);
   const [inputValue, setInputValue] = useState("");
-  const [beneficiaries, setBeneficiaries] = useState<Beneficiary[]>(DEFAULT_BENEFICIARIES);
   
   // Local messages for components from frontend actions
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
+  
+  // Cache for fetched data to pass to components
+  const [cachedAccounts, setCachedAccounts] = useState<any[]>([]);
+  const [cachedBeneficiaries, setCachedBeneficiaries] = useState<any[]>([]);
+  const [cachedSpending, setCachedSpending] = useState<any[]>([]);
 
   // Use CopilotChat hook
   const { appendMessage, isLoading, visibleMessages } = useCopilotChat();
@@ -99,7 +89,7 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
       { 
         id: 'init', 
         role: 'assistant', 
-        content: "Hello! I'm your Banking Assistant. How can I help you today?", 
+        content: "Hello! I'm your Phoenix Digital Bank Assistant. How can I help you today?", 
         timestamp: new Date(0)
       }
     ];
@@ -134,7 +124,7 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
           id: m.id || `state-${index}`,
           role: m.role as 'user' | 'assistant',
           content: m.content,
-          timestamp: new Date(index + 1),
+timestamp: new Date(Date.now() - (rawMessages.length - index) * 1000),
         });
       });
     } else {
@@ -161,7 +151,6 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
     // Sort by timestamp and dedupe by ID
     const seenFinal = new Set<string>();
     return result
-      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
       .filter(m => {
         if (seenFinal.has(m.id)) return false;
         seenFinal.add(m.id);
@@ -203,76 +192,296 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
 
   // --- COPILOT READABLE STATE ---
   useCopilotReadable({ 
-    description: "List of available beneficiaries for money transfers", 
-    value: beneficiaries 
+    description: "Current user ID for banking operations", 
+    value: selectedUserId 
+  });
+  
+  useCopilotReadable({ 
+    description: "Cached account balances", 
+    value: cachedAccounts 
+  });
+  
+  useCopilotReadable({ 
+    description: "Cached beneficiaries list", 
+    value: cachedBeneficiaries 
   });
   
   // --- COPILOT ACTIONS (Frontend Tools) ---
-  // These are exposed to the LangGraph agent via CopilotKit
-  useCopilotAction({ 
-    name: "showBeneficiaries", 
-    description: "Display the list of beneficiaries that the user can transfer money to. Call this when user wants to SEE or VIEW their beneficiaries.", 
-    parameters: [],
-    handler: async () => {
-      console.log("🎯 showBeneficiaries handler called!");
-      addLocalMessage(
-        'assistant', 
-        "Here are your beneficiaries:", 
-        <BeneficiaryManager beneficiaries={beneficiaries} setBeneficiaries={setBeneficiaries} />
-      );
-      return "Displayed beneficiaries list to the user";
-    }
-  });
-  
-  useCopilotAction({ 
-    name: "transferMoney", 
-    description: "Show the money transfer form to allow user to send money. Call this when user wants to make a transfer.", 
-    parameters: [],
-    handler: async () => {
-      console.log("🎯 transferMoney handler called!");
-      addLocalMessage(
-        'assistant', 
-        "Here's the transfer form:", 
-        <TransferMoney beneficiaries={beneficiaries} />
-      );
-      return "Displayed transfer money form to the user";
-    }
-  });
-  
   useCopilotAction({ 
     name: "showBalance", 
-    description: "Show the user's current account balance with a visual UI component. ALWAYS call this when user asks to show, see, view, or display their balance.", 
-    parameters: [],
-    handler: async () => {
-      console.log("🎯 showBalance handler called!");
-      addLocalMessage(
-        'assistant', 
-        "Here is your current balance:", 
-        <BalanceCard userId={selectedUserId} />
-      );
-      return "Displayed account balance to the user";
+    description: "Display account balances UI. Use when user wants to SEE/VIEW their balance. Pass the accounts data from get_balance tool.", 
+    parameters: [
+      { 
+        name: "accounts", 
+        type: "object[]" as const, 
+        description: "Array of account objects with id, name, type, balance, currency fields",
+        required: false
+      }
+    ],
+    handler: async ({ accounts }: { accounts?: any[] | string }) => {
+    // Parse if it's a string
+    let accountData = accounts;
+    if (typeof accounts === 'string') {
+      try {
+        accountData = JSON.parse(accounts);
+      } catch (e) {
+        console.error('Failed to parse accounts:', e);
+        accountData = cachedAccounts;
+      }
     }
+    accountData = accountData || cachedAccounts;
+    if (Array.isArray(accountData)) setCachedAccounts(accountData);
+    
+    addLocalMessage(
+      'assistant', 
+      "Here are your account balances:", 
+      <BalanceCard userId={selectedUserId} accounts={Array.isArray(accountData) ? accountData : []} />
+    );
+    return "Displayed account balances to user";
+  }
   });
   
   useCopilotAction({ 
-    name: "showSpending", 
-    description: "Show spending analysis and breakdown chart. Call this when user wants to SEE or VIEW their spending.", 
-    parameters: [],
-    handler: async () => {
-      console.log("🎯 showSpending handler called!");
+    name: "showBeneficiaries", 
+    description: "Display beneficiaries list UI. Call this after get_beneficiaries to show the data.", 
+    parameters: [
+      { 
+        name: "beneficiaries", 
+        type: "object[]" as const, 
+        description: "Array of beneficiary objects from get_beneficiaries.",
+        required: false
+      }
+    ],
+    handler: async ({ beneficiaries }: { beneficiaries?: any[] | string }) => {
+      console.log('showBeneficiaries called with:', beneficiaries, typeof beneficiaries);
+      
+      let benData: any[] = [];
+      
+      // Parse if string
+      if (typeof beneficiaries === 'string') {
+        try {
+          benData = JSON.parse(beneficiaries);
+        } catch (e) {
+          console.error('Failed to parse beneficiaries:', e);
+        }
+      } else if (Array.isArray(beneficiaries)) {
+        benData = beneficiaries;
+      }
+      
+      // Update cache
+      if (benData.length > 0) {
+        setCachedBeneficiaries(benData);
+      } else if (cachedBeneficiaries.length > 0) {
+        benData = cachedBeneficiaries;
+      }
+      
+      
       addLocalMessage(
         'assistant', 
-        "Here is your spending breakdown:", 
-        <SpendingChart />
+        "Here are your saved beneficiaries:", 
+        <BeneficiaryManager beneficiaries={benData} />
       );
-      return "Displayed spending analysis chart to the user";
+      return "Displayed beneficiaries list to user";
     }
   });
 
-  // Debug: Log visibleMessages
-  React.useEffect(() => {
-    console.log('visibleMessages:', visibleMessages);
-  }, [visibleMessages]);
+
+  useCopilotAction({ 
+    name: "showSpending", 
+    description: "Display spending analysis chart. Use when user wants to SEE/VIEW their spending breakdown. Pass spending data from get_spend_by_category tool.", 
+    parameters: [
+      { 
+        name: "spendingData", 
+        type: "object[]" as const, 
+        description: "Array of spending objects with category and total fields",
+        required: false
+      },
+      { 
+        name: "currency", 
+        type: "string" as const, 
+        description: "Currency code (e.g. AED)",
+        required: false
+      }
+    ],
+    handler: async ({ spendingData, currency }: { spendingData?: any[]; currency?: string }) => {
+      const spending = spendingData || cachedSpending;
+      if (spendingData) setCachedSpending(spendingData);
+      addLocalMessage(
+        'assistant', 
+        "Here is your spending breakdown:", 
+        <SpendingChart spendingData={spending} currency={currency || 'AED'} />
+      );
+      return "Displayed spending analysis to user";
+    }
+  });
+
+ // Replace the showTransferForm useCopilotAction in page.tsx with this:
+
+useCopilotAction({ 
+  name: "showTransferForm", 
+  description: "Display transfer money form. Call this after fetching accounts and beneficiaries.", 
+  parameters: [
+    { name: "accounts", type: "object[]" as const, description: "Array of account objects from get_balance.", required: false },
+    { name: "beneficiaries", type: "object[]" as const, description: "Array of beneficiary objects from get_beneficiaries.", required: false }
+  ],
+  handler: async ({ accounts, beneficiaries }: { accounts?: any[] | string; beneficiaries?: any[] | string }) => {
+    // Parse accounts
+    let acctData: any[] = [];
+    if (typeof accounts === 'string') {
+      try { acctData = JSON.parse(accounts); } catch (e) { console.error('Parse error:', e); }
+    } else if (Array.isArray(accounts)) {
+      acctData = accounts;
+    }
+    
+    // Parse beneficiaries
+    let benData: any[] = [];
+    if (typeof beneficiaries === 'string') {
+      try { benData = JSON.parse(beneficiaries); } catch (e) { console.error('Parse error:', e); }
+    } else if (Array.isArray(beneficiaries)) {
+      benData = beneficiaries;
+    }
+    
+    // Fallback to cache
+    if (acctData.length === 0) acctData = cachedAccounts;
+    if (benData.length === 0) benData = cachedBeneficiaries;
+    
+    // Update cache
+    if (acctData.length > 0) setCachedAccounts(acctData);
+    if (benData.length > 0) setCachedBeneficiaries(benData);
+    
+    // Callback to send message to agent
+    const handleSendMessage = (message: string) => {
+      appendMessage(new TextMessage({ role: Role.User, content: message }));
+    };
+    
+    addLocalMessage(
+      'assistant', 
+      "Here's the transfer form. Fill in the details and click 'Propose Transfer':", 
+      <TransferMoney 
+        accounts={acctData} 
+        beneficiaries={benData} 
+        userId={selectedUserId}
+        onSendMessage={handleSendMessage}
+      />
+    );
+    return "Displayed transfer form to user";
+  }
+});
+
+// Also update showPendingTransfers to include approve/reject buttons:
+useCopilotAction({ 
+  name: "showPendingTransfers", 
+  description: "Display pending transfers that need approval.", 
+  parameters: [
+    { name: "transfers", type: "object[]" as const, description: "Array of pending transfer objects", required: false }
+  ],
+  handler: async ({ transfers }: { transfers?: any[] | string }) => {
+    let transferList: any[] = [];
+    if (typeof transfers === 'string') {
+      try { transferList = JSON.parse(transfers); } catch (e) { console.error('Parse error:', e); }
+    } else if (Array.isArray(transfers)) {
+      transferList = transfers;
+    }
+    
+    if (transferList.length === 0) {
+      addLocalMessage('assistant', "You have no pending transfers awaiting approval.");
+      return "No pending transfers";
+    }
+    
+    const handleApprove = (transferId: string) => {
+      appendMessage(new TextMessage({ role: Role.User, content: `Approve transfer ${transferId}` }));
+    };
+    
+    const handleReject = (transferId: string) => {
+      appendMessage(new TextMessage({ role: Role.User, content: `Reject transfer ${transferId}` }));
+    };
+    
+    const PendingTransfersUI = () => (
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden max-w-md">
+        <div className="p-4 border-b border-zinc-800 bg-yellow-500/10">
+          <h3 className="font-semibold text-yellow-400">Pending Transfers ({transferList.length})</h3>
+        </div>
+        <div className="divide-y divide-zinc-800">
+          {transferList.map((t: any) => (
+            <div key={t.id} className="p-4">
+              <div className="flex justify-between items-start mb-3">
+                <div>
+                  <p className="text-white font-medium">{t.amount} {t.currency || 'AED'}</p>
+                  <p className="text-xs text-zinc-500">{t.from_account} → {t.to_destination}</p>
+                </div>
+                <span className="text-xs text-yellow-500 bg-yellow-500/10 px-2 py-1 rounded">Pending</span>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => handleReject(t.id)} className="flex-1 py-2 rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 text-xs font-medium">
+                  Reject
+                </button>
+                <button onClick={() => handleApprove(t.id)} className="flex-1 py-2 rounded-lg bg-green-600 hover:bg-green-500 text-white text-xs font-medium">
+                  Approve
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+    
+    addLocalMessage('assistant', `You have ${transferList.length} pending transfer(s):`, <PendingTransfersUI />);
+    return "Displayed pending transfers";
+  }
+});
+  useCopilotAction({ 
+    name: "showPendingTransfers", 
+    description: "Display pending transfers that need approval. Pass data from get_pending_transfers tool.", 
+    parameters: [
+      { 
+        name: "transfers", 
+        type: "object[]" as const, 
+        description: "Array of pending transfer objects",
+        required: false
+      }
+    ],
+    handler: async ({ transfers }: { transfers?: any[] }) => {
+      const pendingList = transfers || [];
+      if (pendingList.length === 0) {
+        addLocalMessage('assistant', "You have no pending transfers awaiting approval.");
+      } else {
+        const content = pendingList.map((t: any) => 
+          `• ${t.amount} ${t.currency || 'AED'} from ${t.from_account} to ${t.to_destination} - ID: ${t.id}`
+        ).join('\n');
+        addLocalMessage(
+          'assistant', 
+          `You have ${pendingList.length} pending transfer(s):\n\n${content}\n\nSay "approve transfer [ID]" to approve or "reject transfer [ID]" to reject.`
+        );
+      }
+      return "Displayed pending transfers to user";
+    }
+  });
+
+  useCopilotAction({ 
+    name: "showTransactions", 
+    description: "Display recent transactions. Pass data from get_transactions tool.", 
+    parameters: [
+      { 
+        name: "transactions", 
+        type: "object[]" as const, 
+        description: "Array of transaction objects",
+        required: false
+      }
+    ],
+    handler: async ({ transactions }: { transactions?: any[] }) => {
+      const txList = transactions || [];
+      if (txList.length === 0) {
+        addLocalMessage('assistant', "No transactions found for the specified criteria.");
+      } else {
+        const content = txList.slice(0, 10).map((t: any) => {
+          const sign = t.type === 'credit' || t.type === 'transfer_in' ? '+' : '-';
+          return `• ${sign}${t.amount} ${t.currency || 'AED'} - ${t.description || t.category} (${new Date(t.timestamp).toLocaleDateString()})`;
+        }).join('\n');
+        addLocalMessage('assistant', `Here are your recent transactions:\n\n${content}`);
+      }
+      return "Displayed transactions to user";
+    }
+  });
 
   return (
     <div className="flex h-screen bg-zinc-950 text-zinc-200 font-sans overflow-hidden">
@@ -296,14 +505,15 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
                   <button className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-md text-xs font-medium text-zinc-400 hover:text-zinc-200 transition-colors">
                     <Bot size={14} /> {models.find(m => m.id === selectedModelId)?.name} <ChevronDown size={12} />
                   </button>
-                  <div className="absolute right-0 top-full mt-1 w-48 bg-zinc-950 border border-zinc-800 rounded-lg shadow-xl overflow-hidden hidden group-hover:block z-50 animate-in fade-in slide-in-from-top-1">
-                    {models.map(m => (
+<div className="absolute right-0 top-full pt-1 w-48 z-50 hidden group-hover:block">
+  <div className="bg-zinc-950 border border-zinc-800 rounded-lg shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-1">                    {models.map(m => (
                       <button key={m.id} onClick={() => setSelectedModelId(m.id)} className={`w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-zinc-900 transition-colors ${selectedModelId === m.id ? 'text-white bg-zinc-900' : 'text-zinc-400'}`}>
                         <Bot size={14} className={selectedModelId === m.id ? 'text-blue-500' : 'text-zinc-600'} />
                         {m.name}
                         {selectedModelId === m.id && <Check size={12} className="ml-auto text-blue-500" />}
                       </button>
                     ))}
+                  </div>
                   </div>
                 </div>
 
@@ -345,7 +555,7 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
   );
 }
 
-// --- APP ENTRY ---
+
 export default function App() {
   const DEFAULT_USER_ID = users[0].id; 
   const DEFAULT_MODEL_ID = models[0].id;
@@ -354,7 +564,12 @@ export default function App() {
   const [selectedModelId, setSelectedModelId] = useState(DEFAULT_MODEL_ID);
   
   return (
-    <CopilotKit runtimeUrl="/api/copilotkit" agent="bankbot" properties={{ user_id: selectedUserId, model: selectedModelId }}>
+    <CopilotKit 
+      key={`${selectedUserId}-${selectedModelId}`}
+      runtimeUrl="/api/copilotkit" 
+      agent="bankbot" 
+      properties={{ user_id: selectedUserId, model_name: selectedModelId }}
+    >
       <PageContent 
         selectedUserId={selectedUserId} 
         setSelectedUserId={setSelectedUserId} 
