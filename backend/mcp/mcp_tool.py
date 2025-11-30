@@ -1,10 +1,12 @@
 
-from datetime import datetime,date
+from datetime import datetime, date
 from decimal import Decimal
 from langchain_core.tools import tool
+from pydantic import Field, field_validator
 import json
 import uuid
 from mcp.mcp_impl import BankingMCPServer
+from config import settings
 
 
 mcp_server = BankingMCPServer()
@@ -31,7 +33,8 @@ async def get_transactions(
     from_date: str = None, 
     to_date: str = None, 
     category: str = None, 
-    limit: int = 10
+    limit: int = 10,
+    offset: int = 0
 ) -> str:
     """
     Get transaction history with optional filters.
@@ -42,8 +45,9 @@ async def get_transactions(
         to_date: Optional end date (YYYY-MM-DD)
         category: Optional category filter (e.g., 'groceries', 'restaurants')
         limit: Maximum number of transactions to return (default 10)
+        offset: Number of transactions to skip (default 0)
     """
-    result = await mcp_server.get_transactions(user_id, from_date, to_date, category, limit)
+    result = await mcp_server.get_transactions(user_id, from_date, to_date, category, limit, offset)
     return json.dumps(result, default=custom_serializer)
 
 @tool
@@ -81,12 +85,24 @@ async def propose_transfer(
         user_id: The user's ID
         from_account_name: Source account name (e.g., "Salary Account", "Savings")
         to_beneficiary_nickname: Beneficiary nickname (e.g., "Bob - Main", "Carol - Current")
-        amount: Amount to transfer in AED
+        amount: Amount to transfer in AED (must be positive and <= max limit)
         description: Optional transfer description
     
     Returns:
         Proposal details with proposal_id for approval
     """
+    if amount <= 0:
+        return json.dumps({
+            "success": False,
+            "error": f"Invalid amount: {amount}. Amount must be positive."
+        })
+    
+    if amount > settings.max_transfer_amount:
+        return json.dumps({
+            "success": False,
+            "error": f"Amount {amount} AED exceeds maximum transfer limit of {settings.max_transfer_amount} AED."
+        })
+    
     result = await mcp_server.propose_transfer(
         user_id, from_account_name, to_beneficiary_nickname, amount, description
     )
@@ -108,9 +124,21 @@ async def propose_internal_transfer(
         user_id: The user's ID
         from_account_name: Source account name (e.g., "Salary Account")
         to_account_name: Destination account name (e.g., "Savings Account")
-        amount: Amount to transfer in AED
+        amount: Amount to transfer in AED (must be positive and <= max limit)
         description: Optional transfer description
     """
+    if amount <= 0:
+        return json.dumps({
+            "success": False,
+            "error": f"Invalid amount: {amount}. Amount must be positive."
+        })
+    
+    if amount > settings.max_transfer_amount:
+        return json.dumps({
+            "success": False,
+            "error": f"Amount {amount} AED exceeds maximum transfer limit of {settings.max_transfer_amount} AED."
+        })
+    
     result = await mcp_server.propose_internal_transfer(
         user_id, from_account_name, to_account_name, amount, description
     )
