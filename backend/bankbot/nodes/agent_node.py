@@ -25,7 +25,7 @@ SAMBANOVA_MODELS = {
     "qwen3-32b": "Qwen3-32B",
 }
 
-
+MAX_RETRIES = 3
 
 tool_manager = ToolManager(backend_tools=MCP_TOOLS)
 
@@ -44,9 +44,25 @@ def get_llm(model_name: str):
     )
 
 
+def _is_retryable_error(error_msg: str) -> bool:
+       
+    retryable_patterns = [
+        "429", "rate_limit",  
+        "500", "503",    
+        "timeout", "connection", "network"  
+    ]
+    error_lower = error_msg.lower()
+    return any(pattern in error_lower for pattern in retryable_patterns)
+
+
 async def agent_node(state: AgentState):
     user_id = state.get("user_id", "unknown")
     model_name = state.get("model_name", "gpt-4o")
+    
+    messages = state.get("messages")
+    if not messages:
+        logger.warning(f"No messages provided for user {user_id}")
+        return {"messages": [AIMessage(content="No input provided. Please send a message to start the conversation.")]}
     
     llm = get_llm(model_name)
     all_tools = tool_manager.get_all_tools(state)
@@ -54,26 +70,40 @@ async def agent_node(state: AgentState):
     llm_with_tools = llm.bind_tools(all_tools, parallel_tool_calls=False)
     
     system_message = f"{get_system_prompt()}\n\nCurrent User ID: {user_id}"
-    history = [SystemMessage(content=system_message)] + list(state.get("messages") or [])
+    history = [SystemMessage(content=system_message)] + list(messages)
     
-    for attempt in range(4):
+
+    for attempt in range(MAX_RETRIES + 1):
         try:
             response = None
             async for chunk in llm_with_tools.astream(history):
-                response = chunk if response is None else response + chunk
+              
+                try:
+                    response = chunk if response is None else response + chunk
+                except TypeError as te:
+                    logger.error(f"Chunk accumulation failed: {te}. Chunk type: {type(chunk)}")
+                    response = chunk
+
+            if response is None:
+                logger.error("LLM stream yielded no chunks")
+                return {"messages": [AIMessage(content="I'm having trouble generating a response. Please try again.")]}
             
             return {"messages": [response]}
             
         except Exception as e:
             error_msg = str(e)
+            logger.warning(f"Agent node error (attempt {attempt + 1}/{MAX_RETRIES + 1}): {error_msg}")
             
-            if "429" in error_msg or "rate_limit" in error_msg.lower():
-                if attempt < 3:
-                    await asyncio.sleep((2 ** attempt) + random.random())
+            if _is_retryable_error(error_msg):
+                if attempt < MAX_RETRIES:
+                    backoff_time = (2 ** attempt) + random.random()
+                    logger.info(f"Retrying after {backoff_time:.2f}s...")
+                    await asyncio.sleep(backoff_time)
                     continue
-                return {"messages": [AIMessage(content="Too many requests. Please try again in a minute.")]}
-            
+                return {"messages": [AIMessage(content="The service is temporarily unavailable. Please try again in a moment.")]}
+
             if "400" in error_msg:
-                return {"messages": [AIMessage(content="I encountered an error. Please try again.")]}
+                return {"messages": [AIMessage(content="I encountered an error processing your request. Please try rephrasing.")]}
             
+            logger.error(f"Unhandled error in agent_node: {e}", exc_info=True)
             return {"messages": [AIMessage(content=f"Technical issue: {e}. Please try again.")]}
