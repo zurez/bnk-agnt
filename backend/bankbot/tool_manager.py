@@ -94,13 +94,12 @@ class ToolManager:
             
             seen.add(name)
             
-            # Use our schema if available, otherwise create a basic tool
             schema = FRONTEND_TOOL_SCHEMAS.get(name)
             description = FRONTEND_TOOL_DESCRIPTIONS.get(name, action.get("description", f"Display {name} UI component"))
             
             if schema:
                 tool = StructuredTool.from_function(
-                    func=self._make_handler(name),
+                    func=self._make_handler(name, schema),
                     name=name,
                     description=description,
                     args_schema=schema,
@@ -117,8 +116,18 @@ class ToolManager:
         return tools
     
     @staticmethod
-    def _make_handler(name: str):
+    def _make_handler(name: str, schema: Any = None):
         def handler(**kwargs) -> str:
+            if schema:
+                try:
+                    # Validate arguments against schema if provided
+                    schema(**kwargs)
+                except Exception as e:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"Invalid arguments for frontend tool {name}: {e}")
+                    # We still return success as this is just a UI trigger, but logging helps debugging
+            
             return f"UI component '{name}' displayed to user."
         return handler
     
