@@ -208,3 +208,35 @@ async def remove_beneficiary(user_id: str, beneficiary_id: str) -> str:
     """
     result = await mcp_server.remove_beneficiary(user_id, beneficiary_id)
     return json.dumps(result, default=custom_serializer)
+
+
+MCP_TOOLS = [
+    get_balance,
+    get_transactions,
+    get_spend_by_category,
+    get_beneficiaries,
+    add_beneficiary,
+    remove_beneficiary,
+    propose_transfer,
+    propose_internal_transfer,
+    approve_transfer,
+    reject_transfer,
+    get_pending_transfers,
+    get_transfer_history,
+]
+
+
+MCP_TOOL_NAMES = {
+    "get_balance",
+    "get_transactions",
+    "get_spend_by_category",
+    "get_beneficiaries",
+    "add_beneficiary",
+    "remove_beneficiary",
+    "propose_transfer",
+    "propose_internal_transfer",
+    "approve_transfer",
+    "reject_transfer",
+    "get_pending_transfers",
+    "get_transfer_history",
+}
