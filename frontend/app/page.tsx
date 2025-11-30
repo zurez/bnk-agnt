@@ -24,6 +24,7 @@ import { BeneficiaryManager } from '../components/BeneficiaryManager';
 import { TransferMoney } from '../components/TransferMoney';
 import { SpendingChart } from '../components/SpendingChart';
 import { BankingChat } from '../components/BankingChat';
+import { AddBeneficiaryForm } from '../components/AddBeneficiaryForm';
 
 // --- DATA & TYPES ---
 interface UserType {
@@ -361,10 +362,14 @@ useCopilotAction({
       appendMessage(new TextMessage({ role: Role.User, content: message }));
     };
     
+    // Use timestamp as key to force re-mount and reset state after proposal
+    const transferFormKey = `transfer-${Date.now()}`;
+    
     addLocalMessage(
       'assistant', 
       "Here's the transfer form. Fill in the details and click 'Propose Transfer':", 
       <TransferMoney 
+        key={transferFormKey}
         accounts={acctData} 
         beneficiaries={benData} 
         userId={selectedUserId}
@@ -436,33 +441,7 @@ useCopilotAction({
     return "Displayed pending transfers";
   }
 });
-  useCopilotAction({ 
-    name: "showPendingTransfers", 
-    description: "Display pending transfers that need approval. Pass data from get_pending_transfers tool.", 
-    parameters: [
-      { 
-        name: "transfers", 
-        type: "object[]" as const, 
-        description: "Array of pending transfer objects",
-        required: false
-      }
-    ],
-    handler: async ({ transfers }: { transfers?: any[] }) => {
-      const pendingList = transfers || [];
-      if (pendingList.length === 0) {
-        addLocalMessage('assistant', "You have no pending transfers awaiting approval.");
-      } else {
-        const content = pendingList.map((t: any) => 
-          `• ${t.amount} ${t.currency || 'AED'} from ${t.from_account} to ${t.to_destination} - ID: ${t.id}`
-        ).join('\n');
-        addLocalMessage(
-          'assistant', 
-          `You have ${pendingList.length} pending transfer(s):\n\n${content}\n\nSay "approve transfer [ID]" to approve or "reject transfer [ID]" to reject.`
-        );
-      }
-      return "Displayed pending transfers to user";
-    }
-  });
+
 
   useCopilotAction({ 
     name: "showTransactions", 
@@ -487,6 +466,27 @@ useCopilotAction({
         addLocalMessage('assistant', `Here are your recent transactions:\n\n${content}`);
       }
       return "Displayed transactions to user";
+    }
+  });
+
+  useCopilotAction({
+    name: "showAddBeneficiaryForm",
+    description: "Display form to add a new beneficiary. Call this when user wants to add a beneficiary.",
+    parameters: [],
+    handler: async () => {
+      const handleSendMessage = (message: string) => {
+        appendMessage(new TextMessage({ role: Role.User, content: message }));
+      };
+
+      addLocalMessage(
+        'assistant',
+        "Here's the form to add a new beneficiary:",
+        <AddBeneficiaryForm 
+          onSendMessage={handleSendMessage}
+          currentUserId={selectedUserId}
+        />
+      );
+      return "Displayed add beneficiary form to user";
     }
   });
 

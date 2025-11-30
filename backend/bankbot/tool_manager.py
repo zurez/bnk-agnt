@@ -13,6 +13,7 @@ FRONTEND_TOOL_ALLOWLIST = {
     "showTransactions",
     "showTransferForm",
     "showPendingTransfers",
+    "showAddBeneficiaryForm",
     "transferMoney",
 }
 
@@ -66,6 +67,7 @@ FRONTEND_TOOL_DESCRIPTIONS = {
     "showTransactions": "Display transactions list UI component. You MUST pass the transactions data from get_transactions as a JSON string.",
     "showTransferForm": "Display transfer form UI component. You MUST pass accounts from get_balance AND beneficiaries from get_beneficiaries as JSON strings.",
     "showPendingTransfers": "Display pending transfers list UI component. You MUST pass the transfers data from get_pending_transfers as a JSON string.",
+    "showAddBeneficiaryForm": "Display form to add a new beneficiary. Call this when user wants to add a beneficiary. No parameters needed.",
 }
 
 
