@@ -111,7 +111,6 @@ class BankingMCPServer:
         nickname: str
     ) -> dict:
       
-        # Map account numbers to users, to simlate the real bvanking trxn
         account_map = {
             'PDB-ALICE-001': ('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'a1eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'),
             'PDB-BOB-001': ('b0eebc99-9c0b-4ef8-bb6d-6bb9bd380b22', 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380b22'),
@@ -127,8 +126,6 @@ class BankingMCPServer:
             return {"success": False, "error": "Cannot add yourself as a beneficiary"}
         
         with engine.begin() as conn:
-
-            # Check for ANY existing beneficiary (active or inactive)
             existing = conn.execute(
                 select(beneficiaries).where(
                     and_(
@@ -138,24 +135,21 @@ class BankingMCPServer:
                 )
             ).first()
             
-            # If beneficiary exists and is active, return error
             if existing and existing.is_active:
                 return {"success": False, "error": f"Beneficiary '{existing.nickname}' already exists"}
             
-            # If beneficiary exists but is inactive, reactivate it
             if existing and not existing.is_active:
                 conn.execute(
                     update(beneficiaries)
                     .where(beneficiaries.c.id == existing.id)
                     .values(
                         is_active=True,
-                        nickname=nickname,  # Update nickname in case it changed
+                        nickname=nickname,
                         updated_at=datetime.utcnow()
                     )
                 )
                 return {"success": True, "beneficiary_id": str(existing.id), "message": f"Beneficiary '{nickname}' reactivated successfully"}
             
-            # If no existing beneficiary, create new one
             new_id = str(uuid.uuid4())
             conn.execute(
                 insert(beneficiaries).values(
