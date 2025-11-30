@@ -174,6 +174,7 @@ INSERT INTO transactions (account_id, type, amount, category, description, merch
 -- ========================================
 CREATE INDEX idx_accounts_user_id ON accounts(user_id);
 CREATE INDEX idx_beneficiaries_user_id ON beneficiaries(user_id);
+CREATE INDEX idx_beneficiaries_user_active ON beneficiaries(user_id, is_active);
 CREATE INDEX idx_transactions_account_id ON transactions(account_id);
 CREATE INDEX idx_transactions_timestamp ON transactions(timestamp);
 CREATE INDEX idx_transactions_category ON transactions(category);

@@ -39,10 +39,14 @@ class BankingMCPServer:
         limit: int = 10
     ) -> List[dict]:
         """Get transaction history with optional filters."""
-        query = select(transactions).where(
-            transactions.c.account_id.in_(
-                select(accounts.c.id).where(accounts.c.user_id == user_id)
-            )
+        # Join with accounts to include account name in results
+        query = select(
+            transactions,
+            accounts.c.name.label('account_name')
+        ).select_from(
+            transactions.join(accounts, transactions.c.account_id == accounts.c.id)
+        ).where(
+            accounts.c.user_id == user_id
         )
         
         if from_date:
@@ -56,7 +60,7 @@ class BankingMCPServer:
         
         with engine.connect() as conn:
             result = conn.execute(query)
-            return [self._row_to_dict(row) for row in result]
+            return [dict(row._mapping) for row in result]
 
     async def get_spend_by_category(
         self,
@@ -64,22 +68,27 @@ class BankingMCPServer:
         from_date: str = None,
         to_date: str = None
     ) -> List[dict]:
+        """Get spending aggregated by category with optional date filters."""
+        # Build conditions list to apply filters before GROUP BY
+        conditions = [
+            transactions.c.account_id.in_(
+                select(accounts.c.id).where(accounts.c.user_id == user_id)
+            ),
+            transactions.c.type.in_(['debit', 'transfer_out'])
+        ]
+        
+        # Add date filters to WHERE clause (before GROUP BY)
+        if from_date:
+            conditions.append(transactions.c.timestamp >= from_date)
+        if to_date:
+            conditions.append(transactions.c.timestamp <= to_date)
+        
         query = select(
             transactions.c.category,
             text("SUM(amount) as total")
         ).where(
-            and_(
-                transactions.c.account_id.in_(
-                    select(accounts.c.id).where(accounts.c.user_id == user_id)
-                ),
-                transactions.c.type.in_(['debit', 'transfer_out'])
-            )
+            and_(*conditions)
         ).group_by(transactions.c.category)
-
-        if from_date:
-            query = query.where(transactions.c.timestamp >= from_date)
-        if to_date:
-            query = query.where(transactions.c.timestamp <= to_date)
             
         with engine.connect() as conn:
             result = conn.execute(query)
@@ -220,6 +229,20 @@ class BankingMCPServer:
             
             if not beneficiary:
                 return {"success": False, "error": f"Beneficiary '{to_beneficiary_nickname}' not found"}
+            
+            # Validate currency consistency
+            to_account = conn.execute(
+                select(accounts).where(accounts.c.id == beneficiary.beneficiary_account_id)
+            ).first()
+            
+            if not to_account:
+                return {"success": False, "error": "Beneficiary account not found"}
+            
+            if from_account.currency != to_account.currency:
+                return {
+                    "success": False, 
+                    "error": f"Currency mismatch: source account is {from_account.currency} but destination is {to_account.currency}"
+                }
       
             proposal_id = str(uuid.uuid4())
             conn.execute(
@@ -281,8 +304,15 @@ class BankingMCPServer:
             if from_account.id == to_account.id:
                 return {"success": False, "error": "Cannot transfer to the same account"}
             
+            # Validate currency consistency
+            if from_account.currency != to_account.currency:
+                return {
+                    "success": False,
+                    "error": f"Currency mismatch: {from_account.name} is {from_account.currency} but {to_account.name} is {to_account.currency}"
+                }
+            
             if from_account.balance < amount:
-                return {"success": False, "error": f"Insufficient funds. Balance: AED {from_account.balance}"}
+                return {"success": False, "error": f"Insufficient funds. Balance: {from_account.currency} {from_account.balance}"}
             
             proposal_id = str(uuid.uuid4())
             conn.execute(
@@ -325,6 +355,25 @@ class BankingMCPServer:
             from_account = conn.execute(
                 select(accounts).where(accounts.c.id == transfer.from_account_id)
             ).first()
+            
+            to_account = conn.execute(
+                select(accounts).where(accounts.c.id == transfer.to_account_id)
+            ).first()
+            
+            # Validate currency consistency
+            if to_account and from_account.currency != to_account.currency:
+                conn.execute(
+                    update(transfer_log)
+                    .where(transfer_log.c.id == transfer_id)
+                    .values(
+                        status='failed',
+                        rejection_reason=f'Currency mismatch: {from_account.currency} vs {to_account.currency}'
+                    )
+                )
+                return {
+                    "success": False,
+                    "error": f"Currency mismatch: source is {from_account.currency} but destination is {to_account.currency}"
+                }
             
             if from_account.balance < transfer.amount:
                 conn.execute(

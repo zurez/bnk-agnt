@@ -32,7 +32,7 @@ export const AddBeneficiaryForm = ({ onSendMessage, currentUserId }: AddBenefici
   const handleSubmit = () => {
     if (!isValid || !onSendMessage) return;
     
-    const message = `Add beneficiary with account number ${formData.accountNumber} and nickname "${formData.nickname}"`;
+    const message = `Add beneficiary: account_number="${formData.accountNumber}", nickname="${formData.nickname}"`;
     
     setSubmitted(true);
     onSendMessage(message);
