@@ -56,7 +56,7 @@ async def intent_classifier_node(state: Dict[str, Any]) -> Dict[str, Any]:
             }
         }
     
-    logger.info("[INTENT_CLASSIFIER] ✓ Passed rule-based validation")
+    logger.info("[INTENT_CLASSIFIER] Passed rule-based validation")
       
     try:
         if INTENT_CLASSIFIER_MODEL == "sambanova":
@@ -73,7 +73,7 @@ async def intent_classifier_node(state: Dict[str, Any]) -> Dict[str, Any]:
             llm = ChatOpenAI(
                 model=OPENAI_MODEL,
                 temperature=0,
-                api_key=os.getenv("OPENAI_KEY")
+                api_key=os.getenv("OPENAI_API_KEY")
             )
         
      
