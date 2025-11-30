@@ -15,9 +15,11 @@ from phoenix.otel import register
 from openinference.instrumentation.langchain import LangChainInstrumentor
 
 
+from config import settings
+
 tracer_provider = register(
-    project_name=os.getenv("PHOENIX_PROJECT_NAME", "bank-agent"),
-    endpoint=os.getenv("PHOENIX_ENDPOINT", "http://localhost:6006/v1/traces"),
+    project_name=settings.phoenix_project_name,
+    endpoint=settings.phoenix_collector_endpoint,
 )
 
 LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
@@ -55,9 +57,35 @@ add_langgraph_fastapi_endpoint(
     path="/bankbot",
 )
 
+from sqlalchemy import text
+from mcp.mcp_impl import engine
+
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    try:
+
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return {
+            "status": "healthy",
+            "components": {
+                "api": "healthy",
+                "database": "connected"
+            }
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "status": "unhealthy",
+                "error": str(e),
+                "components": {
+                    "api": "healthy",
+                    "database": "disconnected"
+                }
+            }
+        )
 
 if __name__ == "__main__":
     import uvicorn
