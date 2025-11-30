@@ -9,7 +9,13 @@ RUN apt-get update && apt-get install -y \
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY . .
+
+# Copy only necessary directories and files to improve caching
+COPY bankbot/ ./bankbot/
+COPY mcp/ ./mcp/
+COPY shared/ ./shared/
+COPY config.py .
+COPY main.py .
 
 
 EXPOSE 8000
