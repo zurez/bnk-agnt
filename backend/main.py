@@ -1,5 +1,5 @@
+
 import warnings
-import os
 try:
     from pydantic.warnings import UnsupportedFieldAttributeWarning
     warnings.simplefilter("ignore", UnsupportedFieldAttributeWarning)
@@ -12,24 +12,23 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from openinference.instrumentation.langchain import LangChainInstrumentor
-from settings import settings
-
+from config import settings
 
 if settings.is_arize_phoenix_enabled():
     # Use Arize cloud Phoenix with space_id and api_key
     from arize.otel import register
     
     tracer_provider = register(
-        space_id=settings.PHOENIX_SPACE_ID,
-        api_key=settings.PHOENIX_API_KEY,
-        project_name=settings.PHOENIX_PROJECT_NAME,
+        space_id=settings.phoenix_space_id,
+        api_key=settings.phoenix_api_key,
+        project_name=settings.phoenix_project_name,
     )
 else:
     from phoenix.otel import register
     
     tracer_provider = register(
-        project_name=settings.PHOENIX_PROJECT_NAME,
-        endpoint=settings.PHOENIX_ENDPOINT,
+        project_name=settings.phoenix_project_name,
+        endpoint=settings.phoenix_collector_endpoint,
     )
 
 

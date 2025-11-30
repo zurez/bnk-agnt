@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     # Observability
     phoenix_project_name: str = "bank-agent"
     phoenix_collector_endpoint: str = "http://localhost:6006/v1/traces"
+    phoenix_api_key: Optional[str] = None
+    phoenix_space_id: Optional[str] = None
+
+    def is_arize_phoenix_enabled(self) -> bool:
+        return bool(self.phoenix_api_key and self.phoenix_space_id)
     
     class Config:
         env_file = "../.env"
