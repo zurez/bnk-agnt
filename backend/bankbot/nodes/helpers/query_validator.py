@@ -61,7 +61,7 @@ SUSPICIOUS_PATTERNS = [
 ]
 
 def validate_query(query: str) -> bool:
-  """_summary_
+    """_summary_
 
     valifates query and returns a bool
 
