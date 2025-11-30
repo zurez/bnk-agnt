@@ -423,7 +423,7 @@ class BankingMCPServer:
                             balance=accounts.c.balance - transfer.amount,
                             updated_at=datetime.utcnow()
                         )
-                    )
+                )
                     
                  
                  
