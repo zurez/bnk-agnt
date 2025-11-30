@@ -1,22 +1,10 @@
+from mcp.mcp_tool import MCP_TOOL_NAMES
 from typing import Any, Dict, List
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 
-MCP_TOOL_NAMES = {      
-    "get_balance",
-    "get_transactions",
-    "get_spend_by_category",
-    "get_beneficiaries",
-    "add_beneficiary",
-    "remove_beneficiary",
-    "propose_transfer",
-    "propose_internal_transfer",
-    "approve_transfer",
-    "reject_transfer",
-    "get_pending_transfers",
-    "get_transfer_history",
-}
+
 
 FRONTEND_TOOL_ALLOWLIST = {
     "showBalance",
