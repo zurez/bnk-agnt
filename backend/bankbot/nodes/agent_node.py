@@ -1,3 +1,4 @@
+
 import asyncio
 import random
 import logging
@@ -9,22 +10,8 @@ from langchain_sambanova import ChatSambaNova
 from bankbot.state import AgentState
 from bankbot.nodes.helpers.prompt_helper import get_system_prompt
 from bankbot.tool_manager import ToolManager
+from mcp.mcp_tool import MCP_TOOLS
 
-from mcp.mcp_tool import (
-    get_balance,
-    get_transactions,
-    get_spend_by_category,
-    get_beneficiaries,
-    add_beneficiary,
-    remove_beneficiary,
-
-    propose_transfer,
-    propose_internal_transfer,
-    approve_transfer,
-    reject_transfer,
-    get_pending_transfers,
-    get_transfer_history,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -38,20 +25,7 @@ SAMBANOVA_MODELS = {
     "qwen3-32b": "Qwen3-32B",
 }
 
-MCP_TOOLS = [
-    get_balance,
-    get_transactions,
-    get_spend_by_category,
-    get_beneficiaries,
-    add_beneficiary,
-    remove_beneficiary,
-    propose_transfer,
-    propose_internal_transfer,
-    approve_transfer,
-    reject_transfer,
-    get_pending_transfers,
-    get_transfer_history,
-]
+
 
 tool_manager = ToolManager(backend_tools=MCP_TOOLS)
 
