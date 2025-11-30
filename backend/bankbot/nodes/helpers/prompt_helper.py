@@ -2,7 +2,7 @@ from typing import Dict
 
 
 def get_intent_prompt(query: str) -> str:
-    INTENT_PROMPT = """You are a banking security classifier. Analyze the user's query and determine if it's requesting:
+    INTENT_CLASSIFICATION_PROMPT = """You are a banking security classifier. Analyze the user's query and determine if it's requesting:
 
 BLOCKED intents (return "blocked"):
 - Money laundering or hiding funds
@@ -21,7 +21,7 @@ User query: {query}
 
 Respond with ONLY one word: "allowed" or "blocked"
 """
-    return INTENT_CLASSIFICATION_PROMPT.format(query)
+    return INTENT_CLASSIFICATION_PROMPT.format(query=query)
 
 def get_agent_prompt(context: Dict) -> str:
     AGENT_PROMPT = """
