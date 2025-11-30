@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { 
   CopilotKit, 
   useCopilotAction,
@@ -44,6 +44,7 @@ interface ChatMessage {
   content: string;
   timestamp: Date;
   component?: React.ReactNode;
+  _insertAfterIndex?: number; // Track where to insert
 }
 
 const users: UserType[] = [
@@ -85,6 +86,9 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
   // Local messages for components from frontend actions
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
   
+  // Track current position in message stream when action fires
+  const messageIndexRef = useRef(0);
+  
   // Cache for fetched data to pass to components
   const [cachedAccounts, setCachedAccounts] = useState<any[]>([]);
   const [cachedBeneficiaries, setCachedBeneficiaries] = useState<any[]>([]);
@@ -92,6 +96,11 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
 
   // Use CopilotChat hook
   const { appendMessage, isLoading, visibleMessages } = useCopilotChat();
+  
+  // Update the ref whenever visibleMessages changes
+  useEffect(() => {
+    messageIndexRef.current = visibleMessages?.length || 0;
+  }, [visibleMessages]);
 
   // Add this useEffect to debug streaming messages
   useEffect(() => {
@@ -108,10 +117,15 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
     const seenIds = new Set<string>();
     const rawMessages = visibleMessages as any[];
     
-    // Track which local messages we've inserted
-    const insertedLocalIds = new Set<string>();
+    // Index local messages by their insertion point
+    const localByIndex = new Map<number, ChatMessage[]>();
+    localMessages.forEach(lm => {
+      const idx = (lm as any)._insertAfterIndex || 0;
+      if (!localByIndex.has(idx)) localByIndex.set(idx, []);
+      localByIndex.get(idx)!.push(lm);
+    });
 
-    // Show initial greeting only if there are no messages yet
+    // Show initial greeting only if no messages
     if (!rawMessages || rawMessages.length === 0) {
       result.push({
         id: 'init',
@@ -119,15 +133,22 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
         content: "Hello! I'm your Phoenix Digital Bank Assistant. How can I help you today?",
         timestamp: new Date(0)
       });
+      // Insert any local messages for index 0
+      localByIndex.get(0)?.forEach(lm => {
+        if (!seenIds.has(lm.id)) {
+          seenIds.add(lm.id);
+          result.push(lm);
+        }
+      });
+      return result;
     }
 
-    // Process API messages in their natural order
-    for (const msg of rawMessages) {
-      // Handle TextMessage
+    // Process API messages and insert local messages at correct positions
+    rawMessages.forEach((msg, index) => {
+      // Process TextMessage
       if (msg?.type === 'TextMessage' && msg?.content && !seenIds.has(msg.id)) {
         seenIds.add(msg.id);
-        
-        let content = stripThinkingTags(msg.content);
+        const content = stripThinkingTags(msg.content);
         if (content) {
           result.push({
             id: msg.id,
@@ -138,62 +159,59 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
         }
       }
       
-      // Handle AgentStateMessage - check for local messages to insert after tool calls
-      if (msg?.type === 'AgentStateMessage') {
-        // Process state messages for content
-        if (msg?.state?.messages) {
-          for (const stateMsg of msg.state.messages) {
-            if (!stateMsg.content || seenIds.has(stateMsg.id)) continue;
-            if (stateMsg.role !== 'user' && stateMsg.role !== 'assistant') continue;
-            if (stateMsg.name || stateMsg.tool_calls?.length) continue; // Skip tool messages
-            
-            seenIds.add(stateMsg.id);
-            
-            let content = stripThinkingTags(stateMsg.content);
-            if (content) {
-              result.push({
-                id: stateMsg.id,
-                role: stateMsg.role as 'user' | 'assistant',
-                content,
-                timestamp: new Date(msg.createdAt || Date.now()),
-              });
-            }
+      // Process AgentStateMessage
+      if (msg?.type === 'AgentStateMessage' && msg?.state?.messages) {
+        for (const stateMsg of msg.state.messages) {
+          if (!stateMsg.content || seenIds.has(stateMsg.id)) continue;
+          if (stateMsg.role !== 'user' && stateMsg.role !== 'assistant') continue;
+          if (stateMsg.name || stateMsg.tool_calls?.length) continue;
+          
+          seenIds.add(stateMsg.id);
+          const content = stripThinkingTags(stateMsg.content);
+          if (content) {
+            result.push({
+              id: stateMsg.id,
+              role: stateMsg.role as 'user' | 'assistant',
+              content,
+              timestamp: new Date(msg.createdAt || Date.now()),
+            });
           }
         }
-        
-        // Insert any pending local messages that were triggered by this state
-        localMessages.forEach((lm) => {
-          if (!insertedLocalIds.has(lm.id) && !seenIds.has(lm.id)) {
-            insertedLocalIds.add(lm.id);
-            seenIds.add(lm.id);
-            result.push(lm);
-          }
-        });
       }
-    }
+
+      // Insert local messages that should appear after this index
+      localByIndex.get(index + 1)?.forEach(lm => {
+        if (!seenIds.has(lm.id)) {
+          seenIds.add(lm.id);
+          result.push(lm);
+        }
+      });
+    });
 
     // Add any remaining local messages at the end
-    localMessages.forEach((lm) => {
+    localMessages.forEach(lm => {
       if (!seenIds.has(lm.id)) {
         result.push(lm);
       }
     });
 
-    // DO NOT SORT - maintain insertion order
     return result;
   }, [visibleMessages, localMessages]);
 
   // Add local message helper
   const addLocalMessage = useCallback((role: 'user' | 'assistant', content: string, component?: React.ReactNode) => {
     const id = `local-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const insertAfterIndex = messageIndexRef.current;
+    
     setLocalMessages(prev => [
       ...prev,
       {
         id,
         role,
         content,
-        timestamp: new Date(), // Use current time
+        timestamp: new Date(),
         component,
+        _insertAfterIndex: insertAfterIndex,
       }
     ]);
   }, []);
@@ -481,8 +499,26 @@ useCopilotAction({
         required: false
       }
     ],
-    handler: async ({ transactions }: { transactions?: any[] }) => {
-      const txList = transactions || [];
+    handler: async ({ transactions }: { transactions?: any[] | string }) => {
+      // Parse if it's a string (possibly double-encoded)
+      let txList: any[] = [];
+      
+      if (typeof transactions === 'string') {
+        try {
+          let parsed = JSON.parse(transactions);
+          // Handle double-encoding
+          if (typeof parsed === 'string') {
+            parsed = JSON.parse(parsed);
+          }
+          txList = Array.isArray(parsed) ? parsed : [];
+        } catch (e) {
+          console.error('Failed to parse transactions:', e);
+          txList = [];
+        }
+      } else if (Array.isArray(transactions)) {
+        txList = transactions;
+      }
+      
       if (txList.length === 0) {
         addLocalMessage('assistant', "No transactions found for the specified criteria.");
       } else {
