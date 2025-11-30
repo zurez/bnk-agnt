@@ -104,38 +104,30 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
 
   // Build messages from visibleMessages + local messages
   const messages: ChatMessage[] = useMemo(() => {
-    const result: ChatMessage[] = [
-      { 
-        id: 'init', 
-        role: 'assistant', 
-        content: "Hello! I'm your Phoenix Digital Bank Assistant. How can I help you today?", 
-        timestamp: new Date(0)
-      }
-    ];
-
+    const result: ChatMessage[] = [];
+    const seenIds = new Set<string>();
     const rawMessages = visibleMessages as any[];
     
+    // Track which local messages we've inserted
+    const insertedLocalIds = new Set<string>();
+
+    // Show initial greeting only if there are no messages yet
     if (!rawMessages || rawMessages.length === 0) {
-      return [...result, ...localMessages];
+      result.push({
+        id: 'init',
+        role: 'assistant',
+        content: "Hello! I'm your Phoenix Digital Bank Assistant. How can I help you today?",
+        timestamp: new Date(0)
+      });
     }
 
-    // Process messages in order, capturing streaming content
-    const seenIds = new Set<string>();
-    
+    // Process API messages in their natural order
     for (const msg of rawMessages) {
-      // Handle TextMessage (includes streaming partial content)
+      // Handle TextMessage
       if (msg?.type === 'TextMessage' && msg?.content && !seenIds.has(msg.id)) {
         seenIds.add(msg.id);
         
-        // Strip <think> tags from reasoning models
-        let content = msg.content;
-        if (typeof content === 'string') {
-          content = content
-            .replace(/<think>[\s\S]*?<\/think>/gi, '')
-            .replace(/<think>[\s\S]*/gi, '')
-            .trim();
-        }
-        
+        let content = stripThinkingTags(msg.content);
         if (content) {
           result.push({
             id: msg.id,
@@ -146,61 +138,64 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
         }
       }
       
-      // Handle AgentStateMessage for tool results and final state
-      if (msg?.type === 'AgentStateMessage' && msg?.state?.messages) {
-        for (const stateMsg of msg.state.messages) {
-          if (!stateMsg.content || seenIds.has(stateMsg.id)) continue;
-          if (stateMsg.role !== 'user' && stateMsg.role !== 'assistant') continue;
-          if (stateMsg.name || stateMsg.tool_calls?.length) continue; // Skip tool messages
-          
-          seenIds.add(stateMsg.id);
-          
-          let content = stateMsg.content;
-          if (typeof content === 'string') {
-            content = content
-              .replace(/<think>[\s\S]*?<\/think>/gi, '')
-              .replace(/<think>[\s\S]*/gi, '')
-              .trim();
-          }
-          
-          if (content) {
-            result.push({
-              id: stateMsg.id,
-              role: stateMsg.role as 'user' | 'assistant',
-              content,
-              timestamp: new Date(Date.now()),
-            });
+      // Handle AgentStateMessage - check for local messages to insert after tool calls
+      if (msg?.type === 'AgentStateMessage') {
+        // Process state messages for content
+        if (msg?.state?.messages) {
+          for (const stateMsg of msg.state.messages) {
+            if (!stateMsg.content || seenIds.has(stateMsg.id)) continue;
+            if (stateMsg.role !== 'user' && stateMsg.role !== 'assistant') continue;
+            if (stateMsg.name || stateMsg.tool_calls?.length) continue; // Skip tool messages
+            
+            seenIds.add(stateMsg.id);
+            
+            let content = stripThinkingTags(stateMsg.content);
+            if (content) {
+              result.push({
+                id: stateMsg.id,
+                role: stateMsg.role as 'user' | 'assistant',
+                content,
+                timestamp: new Date(msg.createdAt || Date.now()),
+              });
+            }
           }
         }
+        
+        // Insert any pending local messages that were triggered by this state
+        localMessages.forEach((lm) => {
+          if (!insertedLocalIds.has(lm.id) && !seenIds.has(lm.id)) {
+            insertedLocalIds.add(lm.id);
+            seenIds.add(lm.id);
+            result.push(lm);
+          }
+        });
       }
     }
 
-    // Add local messages (components from frontend actions)
+    // Add any remaining local messages at the end
     localMessages.forEach((lm) => {
       if (!seenIds.has(lm.id)) {
         result.push(lm);
       }
     });
 
-    return result.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+    // DO NOT SORT - maintain insertion order
+    return result;
   }, [visibleMessages, localMessages]);
 
   // Add local message helper
   const addLocalMessage = useCallback((role: 'user' | 'assistant', content: string, component?: React.ReactNode) => {
     const id = `local-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    setLocalMessages(prev => {
-      // Use timestamp that's 1 second after the last message to maintain chronological order
-      const lastTimestamp = prev.length > 0 ? prev[prev.length - 1].timestamp : new Date();
-      const newTimestamp = new Date(lastTimestamp.getTime() + 1000);
-      
-      return [...prev, {
+    setLocalMessages(prev => [
+      ...prev,
+      {
         id,
         role,
         content,
-        timestamp: newTimestamp,
+        timestamp: new Date(), // Use current time
         component,
-      }];
-    });
+      }
+    ]);
   }, []);
 
   const handleSend = async (e?: React.FormEvent, overridePrompt?: string) => {
