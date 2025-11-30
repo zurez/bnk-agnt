@@ -1,5 +1,5 @@
 import React from "react";
-import { Wallet, ArrowRightLeft, PieChart } from "lucide-react";
+import { Wallet, ArrowRightLeft, PieChart, Users, Receipt, Clock } from "lucide-react";
 
 interface SidebarProps {
   onQuickAction: (prompt: string) => void;
@@ -36,6 +36,24 @@ export const Sidebar = ({ onQuickAction }: SidebarProps) => {
                 className="w-full text-left px-3 py-2 rounded-lg hover:bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 text-sm transition-colors flex items-center gap-2"
               >
                 <PieChart size={14} /> Reports
+              </button>
+              <button 
+                onClick={() => onQuickAction("Show my beneficiaries")} 
+                className="w-full text-left px-3 py-2 rounded-lg hover:bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 text-sm transition-colors flex items-center gap-2"
+              >
+                <Users size={14} /> Beneficiaries
+              </button>
+              <button 
+                onClick={() => onQuickAction("Show my recent transactions")} 
+                className="w-full text-left px-3 py-2 rounded-lg hover:bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 text-sm transition-colors flex items-center gap-2"
+              >
+                <Receipt size={14} /> Transactions
+              </button>
+              <button 
+                onClick={() => onQuickAction("Show pending transfers")} 
+                className="w-full text-left px-3 py-2 rounded-lg hover:bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 text-sm transition-colors flex items-center gap-2"
+              >
+                <Clock size={14} /> Pending
               </button>
             </div>
           </div>
