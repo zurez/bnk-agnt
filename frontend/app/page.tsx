@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { 
   CopilotKit, 
   useCopilotAction,
@@ -24,6 +24,7 @@ import { BeneficiaryManager } from '../components/BeneficiaryManager';
 import { TransferMoney } from '../components/TransferMoney';
 import { SpendingChart } from '../components/SpendingChart';
 import { BankingChat } from '../components/BankingChat';
+import { AddBeneficiaryForm } from '../components/AddBeneficiaryForm';
 
 // --- DATA & TYPES ---
 interface UserType {
@@ -43,6 +44,7 @@ interface ChatMessage {
   content: string;
   timestamp: Date;
   component?: React.ReactNode;
+  _insertAfterIndex?: number; // Track where to insert
 }
 
 const users: UserType[] = [
@@ -60,6 +62,15 @@ const models: ModelType[] = [
   { id: 'qwen3-32b', name: 'Qwen3 32B' },
 ];
 
+function stripThinkingTags(content: string): string {
+  if (!content) return content;
+  return content
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/<think>[\s\S]*/gi, '') // unclosed tags
+    .replace(/^\s+|\s+$/g, '')
+    .replace(/\n{3,}/g, '\n\n');
+}
+
 // --- MAIN PAGE CONTENT ---
 interface PageContentProps {
   selectedUserId: string;
@@ -75,6 +86,9 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
   // Local messages for components from frontend actions
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
   
+  // Track current position in message stream when action fires
+  const messageIndexRef = useRef(0);
+  
   // Cache for fetched data to pass to components
   const [cachedAccounts, setCachedAccounts] = useState<any[]>([]);
   const [cachedBeneficiaries, setCachedBeneficiaries] = useState<any[]>([]);
@@ -82,92 +96,124 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
 
   // Use CopilotChat hook
   const { appendMessage, isLoading, visibleMessages } = useCopilotChat();
+  
+  // Update the ref whenever visibleMessages changes
+  useEffect(() => {
+    messageIndexRef.current = visibleMessages?.length || 0;
+  }, [visibleMessages]);
+
+  // Add this useEffect to debug streaming messages
+  useEffect(() => {
+    console.log('=== VISIBLE MESSAGES UPDATE ===');
+    console.log('Count:', visibleMessages?.length);
+    visibleMessages?.forEach((msg: any, i: number) => {
+      console.log(`[${i}] Type: ${msg?.type}, Content length: ${msg?.content?.length || 0}`);
+    });
+  }, [visibleMessages]);
 
   // Build messages from visibleMessages + local messages
   const messages: ChatMessage[] = useMemo(() => {
-    const result: ChatMessage[] = [
-      { 
-        id: 'init', 
-        role: 'assistant', 
-        content: "Hello! I'm your Phoenix Digital Bank Assistant. How can I help you today?", 
-        timestamp: new Date(0)
-      }
-    ];
-
+    const result: ChatMessage[] = [];
+    const seenIds = new Set<string>();
     const rawMessages = visibleMessages as any[];
     
-    if (!rawMessages || rawMessages.length === 0) {
-      return [...result, ...localMessages];
-    }
-
-    // Strategy 1: Look for AgentStateMessage with complete conversation history
-    let stateMessages: any[] = [];
-    for (let i = rawMessages.length - 1; i >= 0; i--) {
-      const msg = rawMessages[i];
-      if (msg?.type === 'AgentStateMessage' && msg?.state?.messages) {
-        stateMessages = msg.state.messages;
-        break;
-      }
-    }
-
-    if (stateMessages.length > 0) {
-      // Use messages from agent state (complete history from LangGraph)
-      stateMessages.forEach((m: any, index: number) => {
-        // Skip if no content (tool calls have 'name' instead of 'content')
-        if (!m.content) return;
-        // Skip tool-related messages
-        if (m.name || m.actionExecutionId || m.result) return;
-        // Only process user and assistant messages
-        if (m.role !== 'user' && m.role !== 'assistant') return;
-
-        result.push({
-          id: m.id || `state-${index}`,
-          role: m.role as 'user' | 'assistant',
-          content: m.content,
-timestamp: new Date(Date.now() - (rawMessages.length - index) * 1000),
-        });
-      });
-    } else {
-      // Strategy 2: Fallback to TextMessages directly
-      const seenIds = new Set<string>();
-      rawMessages.forEach((m: any, index: number) => {
-        if (m?.type === 'TextMessage' && m?.content && m?.role && !seenIds.has(m.id)) {
-          seenIds.add(m.id);
-          result.push({
-            id: m.id,
-            role: m.role === 'user' ? 'user' : 'assistant',
-            content: m.content,
-            timestamp: new Date(index + 1),
-          });
-        }
-      });
-    }
-
-    // Add local messages (from frontend actions with components)
-    localMessages.forEach((lm) => {
-      result.push(lm);
+    // Index local messages by their insertion point
+    const localByIndex = new Map<number, ChatMessage[]>();
+    localMessages.forEach(lm => {
+      const idx = (lm as any)._insertAfterIndex || 0;
+      if (!localByIndex.has(idx)) localByIndex.set(idx, []);
+      localByIndex.get(idx)!.push(lm);
     });
 
-    // Sort by timestamp and dedupe by ID
-    const seenFinal = new Set<string>();
-    return result
-      .filter(m => {
-        if (seenFinal.has(m.id)) return false;
-        seenFinal.add(m.id);
-        return true;
+    // Show initial greeting only if no messages
+    if (!rawMessages || rawMessages.length === 0) {
+      result.push({
+        id: 'init',
+        role: 'assistant',
+        content: "Hello! I'm your Phoenix Digital Bank Assistant. How can I help you today?",
+        timestamp: new Date(0)
       });
+      // Insert any local messages for index 0
+      localByIndex.get(0)?.forEach(lm => {
+        if (!seenIds.has(lm.id)) {
+          seenIds.add(lm.id);
+          result.push(lm);
+        }
+      });
+      return result;
+    }
+
+    // Process API messages and insert local messages at correct positions
+    rawMessages.forEach((msg, index) => {
+      // Process TextMessage
+      if (msg?.type === 'TextMessage' && msg?.content && !seenIds.has(msg.id)) {
+        seenIds.add(msg.id);
+        const content = stripThinkingTags(msg.content);
+        if (content) {
+          result.push({
+            id: msg.id,
+            role: msg.role === 'user' ? 'user' : 'assistant',
+            content,
+            timestamp: new Date(msg.createdAt || Date.now()),
+          });
+        }
+      }
+      
+      // Process AgentStateMessage
+      if (msg?.type === 'AgentStateMessage' && msg?.state?.messages) {
+        for (const stateMsg of msg.state.messages) {
+          if (!stateMsg.content || seenIds.has(stateMsg.id)) continue;
+          if (stateMsg.role !== 'user' && stateMsg.role !== 'assistant') continue;
+          if (stateMsg.name || stateMsg.tool_calls?.length) continue;
+          
+          seenIds.add(stateMsg.id);
+          const content = stripThinkingTags(stateMsg.content);
+          if (content) {
+            result.push({
+              id: stateMsg.id,
+              role: stateMsg.role as 'user' | 'assistant',
+              content,
+              timestamp: new Date(msg.createdAt || Date.now()),
+            });
+          }
+        }
+      }
+
+      // Insert local messages that should appear after this index
+      localByIndex.get(index + 1)?.forEach(lm => {
+        if (!seenIds.has(lm.id)) {
+          seenIds.add(lm.id);
+          result.push(lm);
+        }
+      });
+    });
+
+    // Add any remaining local messages at the end
+    localMessages.forEach(lm => {
+      if (!seenIds.has(lm.id)) {
+        result.push(lm);
+      }
+    });
+
+    return result;
   }, [visibleMessages, localMessages]);
 
   // Add local message helper
   const addLocalMessage = useCallback((role: 'user' | 'assistant', content: string, component?: React.ReactNode) => {
     const id = `local-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    setLocalMessages(prev => [...prev, {
-      id,
-      role,
-      content,
-      timestamp: new Date(),
-      component,
-    }]);
+    const insertAfterIndex = messageIndexRef.current;
+    
+    setLocalMessages(prev => [
+      ...prev,
+      {
+        id,
+        role,
+        content,
+        timestamp: new Date(),
+        component,
+        _insertAfterIndex: insertAfterIndex,
+      }
+    ]);
   }, []);
 
   const handleSend = async (e?: React.FormEvent, overridePrompt?: string) => {
@@ -257,22 +303,29 @@ timestamp: new Date(Date.now() - (rawMessages.length - index) * 1000),
       
       let benData: any[] = [];
       
-      // Parse if string
+      // Handle string (possibly double-encoded)
       if (typeof beneficiaries === 'string') {
         try {
-          benData = JSON.parse(beneficiaries);
+          let parsed = JSON.parse(beneficiaries);
+          // Handle double-encoding
+          if (typeof parsed === 'string') {
+            parsed = JSON.parse(parsed);
+          }
+          benData = Array.isArray(parsed) ? parsed : [];
         } catch (e) {
-          console.error('Failed to parse beneficiaries:', e);
+          console.error('Parse error:', e);
+          benData = cachedBeneficiaries; // fallback to cache
         }
       } else if (Array.isArray(beneficiaries)) {
         benData = beneficiaries;
       }
       
+      // Fallback to cache if empty
+      if (benData.length === 0) benData = cachedBeneficiaries;
+      
       // Update cache
       if (benData.length > 0) {
         setCachedBeneficiaries(benData);
-      } else if (cachedBeneficiaries.length > 0) {
-        benData = cachedBeneficiaries;
       }
       
       
@@ -354,10 +407,14 @@ useCopilotAction({
       appendMessage(new TextMessage({ role: Role.User, content: message }));
     };
     
+    // Use timestamp as key to force re-mount and reset state after proposal
+    const transferFormKey = `transfer-${Date.now()}`;
+    
     addLocalMessage(
       'assistant', 
       "Here's the transfer form. Fill in the details and click 'Propose Transfer':", 
       <TransferMoney 
+        key={transferFormKey}
         accounts={acctData} 
         beneficiaries={benData} 
         userId={selectedUserId}
@@ -429,33 +486,7 @@ useCopilotAction({
     return "Displayed pending transfers";
   }
 });
-  useCopilotAction({ 
-    name: "showPendingTransfers", 
-    description: "Display pending transfers that need approval. Pass data from get_pending_transfers tool.", 
-    parameters: [
-      { 
-        name: "transfers", 
-        type: "object[]" as const, 
-        description: "Array of pending transfer objects",
-        required: false
-      }
-    ],
-    handler: async ({ transfers }: { transfers?: any[] }) => {
-      const pendingList = transfers || [];
-      if (pendingList.length === 0) {
-        addLocalMessage('assistant', "You have no pending transfers awaiting approval.");
-      } else {
-        const content = pendingList.map((t: any) => 
-          `• ${t.amount} ${t.currency || 'AED'} from ${t.from_account} to ${t.to_destination} - ID: ${t.id}`
-        ).join('\n');
-        addLocalMessage(
-          'assistant', 
-          `You have ${pendingList.length} pending transfer(s):\n\n${content}\n\nSay "approve transfer [ID]" to approve or "reject transfer [ID]" to reject.`
-        );
-      }
-      return "Displayed pending transfers to user";
-    }
-  });
+
 
   useCopilotAction({ 
     name: "showTransactions", 
@@ -468,8 +499,26 @@ useCopilotAction({
         required: false
       }
     ],
-    handler: async ({ transactions }: { transactions?: any[] }) => {
-      const txList = transactions || [];
+    handler: async ({ transactions }: { transactions?: any[] | string }) => {
+      // Parse if it's a string (possibly double-encoded)
+      let txList: any[] = [];
+      
+      if (typeof transactions === 'string') {
+        try {
+          let parsed = JSON.parse(transactions);
+          // Handle double-encoding
+          if (typeof parsed === 'string') {
+            parsed = JSON.parse(parsed);
+          }
+          txList = Array.isArray(parsed) ? parsed : [];
+        } catch (e) {
+          console.error('Failed to parse transactions:', e);
+          txList = [];
+        }
+      } else if (Array.isArray(transactions)) {
+        txList = transactions;
+      }
+      
       if (txList.length === 0) {
         addLocalMessage('assistant', "No transactions found for the specified criteria.");
       } else {
@@ -480,6 +529,27 @@ useCopilotAction({
         addLocalMessage('assistant', `Here are your recent transactions:\n\n${content}`);
       }
       return "Displayed transactions to user";
+    }
+  });
+
+  useCopilotAction({
+    name: "showAddBeneficiaryForm",
+    description: "Display form to add a new beneficiary. Call this when user wants to add a beneficiary.",
+    parameters: [],
+    handler: async () => {
+      const handleSendMessage = (message: string) => {
+        appendMessage(new TextMessage({ role: Role.User, content: message }));
+      };
+
+      addLocalMessage(
+        'assistant',
+        "Here's the form to add a new beneficiary:",
+        <AddBeneficiaryForm 
+          onSendMessage={handleSendMessage}
+          currentUserId={selectedUserId}
+        />
+      );
+      return "Displayed add beneficiary form to user";
     }
   });
 

@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from "react";
 import { Sparkles, Loader2 } from "lucide-react";
+import { Markdown } from "@copilotkit/react-ui";
 
 interface Message {
   id: string;
@@ -23,7 +24,7 @@ export const BankingChat = ({ messages, isTyping, thinkingStep, onSend }: Bankin
   return (
     <div className="flex-1 overflow-y-auto p-4 space-y-6 pb-32 scrollbar-hide">
       {messages.map((m: any) => (
-        <div key={m.id} className={`flex gap-4 ${m.role === 'user' ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-2`}>
+        <div key={`${m.id}-${m.content.length}`} className={`flex gap-4 ${m.role === 'user' ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-2`}>
           {m.role === 'assistant' && (
             <div className="w-8 h-8 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center shrink-0 mt-1">
               <Sparkles size={14} className="text-blue-500" />
@@ -32,7 +33,13 @@ export const BankingChat = ({ messages, isTyping, thinkingStep, onSend }: Bankin
           <div className={`flex flex-col gap-2 max-w-[90%] md:max-w-[75%]`}>
             {m.content && (
               <div className={`rounded-2xl px-5 py-3 shadow-sm ${m.role === 'user' ? 'bg-blue-600 text-white rounded-br-sm' : 'bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-bl-sm'}`}>
-                <p className="text-sm leading-relaxed whitespace-pre-wrap">{m.content}</p>
+                {m.role === 'user' ? (
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{m.content}</p>
+                ) : (
+                  <div className="text-sm leading-relaxed [&_ul]:my-2 [&_ol]:my-2 [&_li]:my-1 [&_p]:my-2 [&_code]:bg-zinc-800 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_pre]:bg-zinc-800 [&_pre]:p-3 [&_pre]:rounded-lg [&_pre]:my-2 [&_pre]:overflow-x-auto [&_strong]:font-semibold [&_strong]:text-white">
+                    <Markdown content={m.content} />
+                  </div>
+                )}
                 <p className={`text-[10px] mt-1.5 opacity-50 ${m.role === 'user' ? 'text-blue-200' : 'text-zinc-500'}`}>{m.timestamp.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
               </div>
             )}

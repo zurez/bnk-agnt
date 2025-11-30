@@ -183,7 +183,7 @@ async def get_beneficiaries(user_id: str) -> str:
 @tool
 async def add_beneficiary(
     user_id: str,
-    beneficiary_account_number: str,
+    account_number: str,
     nickname: str
 ) -> str:
     """
@@ -191,10 +191,10 @@ async def add_beneficiary(
     
     Args:
         user_id: The user's ID
-        beneficiary_account_number: Account number (e.g., PDB-ALICE-001, PDB-BOB-001, PDB-CAROL-001)
+        account_number: Account number (e.g., PDB-ALICE-001, PDB-BOB-001, PDB-CAROL-001)
         nickname: Friendly name for this beneficiary
     """
-    result = await mcp_server.add_beneficiary(user_id, beneficiary_account_number, nickname)
+    result = await mcp_server.add_beneficiary(user_id, account_number, nickname)
     return json.dumps(result, default=custom_serializer)
 
 @tool
