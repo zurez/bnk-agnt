@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { 
   CopilotKit, 
   useCopilotAction,
@@ -61,6 +61,15 @@ const models: ModelType[] = [
   { id: 'qwen3-32b', name: 'Qwen3 32B' },
 ];
 
+function stripThinkingTags(content: string): string {
+  if (!content) return content;
+  return content
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/<think>[\s\S]*/gi, '') // unclosed tags
+    .replace(/^\s+|\s+$/g, '')
+    .replace(/\n{3,}/g, '\n\n');
+}
+
 // --- MAIN PAGE CONTENT ---
 interface PageContentProps {
   selectedUserId: string;
@@ -84,6 +93,15 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
   // Use CopilotChat hook
   const { appendMessage, isLoading, visibleMessages } = useCopilotChat();
 
+  // Add this useEffect to debug streaming messages
+  useEffect(() => {
+    console.log('=== VISIBLE MESSAGES UPDATE ===');
+    console.log('Count:', visibleMessages?.length);
+    visibleMessages?.forEach((msg: any, i: number) => {
+      console.log(`[${i}] Type: ${msg?.type}, Content length: ${msg?.content?.length || 0}`);
+    });
+  }, [visibleMessages]);
+
   // Build messages from visibleMessages + local messages
   const messages: ChatMessage[] = useMemo(() => {
     const result: ChatMessage[] = [
@@ -101,63 +119,70 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
       return [...result, ...localMessages];
     }
 
-    // Strategy 1: Look for AgentStateMessage with complete conversation history
-    let stateMessages: any[] = [];
-    for (let i = rawMessages.length - 1; i >= 0; i--) {
-      const msg = rawMessages[i];
+    // Process messages in order, capturing streaming content
+    const seenIds = new Set<string>();
+    
+    for (const msg of rawMessages) {
+      // Handle TextMessage (includes streaming partial content)
+      if (msg?.type === 'TextMessage' && msg?.content && !seenIds.has(msg.id)) {
+        seenIds.add(msg.id);
+        
+        // Strip <think> tags from reasoning models
+        let content = msg.content;
+        if (typeof content === 'string') {
+          content = content
+            .replace(/<think>[\s\S]*?<\/think>/gi, '')
+            .replace(/<think>[\s\S]*/gi, '')
+            .trim();
+        }
+        
+        if (content) {
+          result.push({
+            id: msg.id,
+            role: msg.role === 'user' ? 'user' : 'assistant',
+            content,
+            timestamp: new Date(msg.createdAt || Date.now()),
+          });
+        }
+      }
+      
+      // Handle AgentStateMessage for tool results and final state
       if (msg?.type === 'AgentStateMessage' && msg?.state?.messages) {
-        stateMessages = msg.state.messages;
-        break;
+        for (const stateMsg of msg.state.messages) {
+          if (!stateMsg.content || seenIds.has(stateMsg.id)) continue;
+          if (stateMsg.role !== 'user' && stateMsg.role !== 'assistant') continue;
+          if (stateMsg.name || stateMsg.tool_calls?.length) continue; // Skip tool messages
+          
+          seenIds.add(stateMsg.id);
+          
+          let content = stateMsg.content;
+          if (typeof content === 'string') {
+            content = content
+              .replace(/<think>[\s\S]*?<\/think>/gi, '')
+              .replace(/<think>[\s\S]*/gi, '')
+              .trim();
+          }
+          
+          if (content) {
+            result.push({
+              id: stateMsg.id,
+              role: stateMsg.role as 'user' | 'assistant',
+              content,
+              timestamp: new Date(Date.now()),
+            });
+          }
+        }
       }
     }
 
-    if (stateMessages.length > 0) {
-      // Use messages from agent state (complete history from LangGraph)
-      stateMessages.forEach((m: any, index: number) => {
-        // Skip if no content (tool calls have 'name' instead of 'content')
-        if (!m.content) return;
-        // Skip tool-related messages
-        if (m.name || m.actionExecutionId || m.result) return;
-        // Only process user and assistant messages
-        if (m.role !== 'user' && m.role !== 'assistant') return;
-
-        result.push({
-          id: m.id || `state-${index}`,
-          role: m.role as 'user' | 'assistant',
-          content: m.content,
-timestamp: new Date(Date.now() - (rawMessages.length - index) * 1000),
-        });
-      });
-    } else {
-      // Strategy 2: Fallback to TextMessages directly
-      const seenIds = new Set<string>();
-      rawMessages.forEach((m: any, index: number) => {
-        if (m?.type === 'TextMessage' && m?.content && m?.role && !seenIds.has(m.id)) {
-          seenIds.add(m.id);
-          result.push({
-            id: m.id,
-            role: m.role === 'user' ? 'user' : 'assistant',
-            content: m.content,
-            timestamp: new Date(index + 1),
-          });
-        }
-      });
-    }
-
-    // Add local messages (from frontend actions with components)
+    // Add local messages (components from frontend actions)
     localMessages.forEach((lm) => {
-      result.push(lm);
+      if (!seenIds.has(lm.id)) {
+        result.push(lm);
+      }
     });
 
-    // Dedupe by ID and sort by timestamp
-    const seenFinal = new Set<string>();
-    return result
-      .filter(m => {
-        if (seenFinal.has(m.id)) return false;
-        seenFinal.add(m.id);
-        return true;
-      })
-      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+    return result.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
   }, [visibleMessages, localMessages]);
 
   // Add local message helper
@@ -265,22 +290,29 @@ timestamp: new Date(Date.now() - (rawMessages.length - index) * 1000),
       
       let benData: any[] = [];
       
-      // Parse if string
+      // Handle string (possibly double-encoded)
       if (typeof beneficiaries === 'string') {
         try {
-          benData = JSON.parse(beneficiaries);
+          let parsed = JSON.parse(beneficiaries);
+          // Handle double-encoding
+          if (typeof parsed === 'string') {
+            parsed = JSON.parse(parsed);
+          }
+          benData = Array.isArray(parsed) ? parsed : [];
         } catch (e) {
-          console.error('Failed to parse beneficiaries:', e);
+          console.error('Parse error:', e);
+          benData = cachedBeneficiaries; // fallback to cache
         }
       } else if (Array.isArray(beneficiaries)) {
         benData = beneficiaries;
       }
       
+      // Fallback to cache if empty
+      if (benData.length === 0) benData = cachedBeneficiaries;
+      
       // Update cache
       if (benData.length > 0) {
         setCachedBeneficiaries(benData);
-      } else if (cachedBeneficiaries.length > 0) {
-        benData = cachedBeneficiaries;
       }
       
       

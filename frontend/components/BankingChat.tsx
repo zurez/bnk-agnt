@@ -23,7 +23,7 @@ export const BankingChat = ({ messages, isTyping, thinkingStep, onSend }: Bankin
   return (
     <div className="flex-1 overflow-y-auto p-4 space-y-6 pb-32 scrollbar-hide">
       {messages.map((m: any) => (
-        <div key={m.id} className={`flex gap-4 ${m.role === 'user' ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-2`}>
+        <div key={`${m.id}-${m.content.length}`} className={`flex gap-4 ${m.role === 'user' ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-2`}>
           {m.role === 'assistant' && (
             <div className="w-8 h-8 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center shrink-0 mt-1">
               <Sparkles size={14} className="text-blue-500" />
