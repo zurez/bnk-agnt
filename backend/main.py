@@ -11,16 +11,27 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from phoenix.otel import register
 from openinference.instrumentation.langchain import LangChainInstrumentor
+from settings import settings
 
 
-from config import settings
+if settings.is_arize_phoenix_enabled():
+    # Use Arize cloud Phoenix with space_id and api_key
+    from arize.otel import register
+    
+    tracer_provider = register(
+        space_id=settings.PHOENIX_SPACE_ID,
+        api_key=settings.PHOENIX_API_KEY,
+        project_name=settings.PHOENIX_PROJECT_NAME,
+    )
+else:
+    from phoenix.otel import register
+    
+    tracer_provider = register(
+        project_name=settings.PHOENIX_PROJECT_NAME,
+        endpoint=settings.PHOENIX_ENDPOINT,
+    )
 
-tracer_provider = register(
-    project_name=settings.phoenix_project_name,
-    endpoint=settings.phoenix_collector_endpoint,
-)
 
 LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
 
