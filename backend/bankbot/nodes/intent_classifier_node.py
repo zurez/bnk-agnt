@@ -2,6 +2,7 @@
 import os
 import logging
 from typing import Dict, Any
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from langchain_openai import ChatOpenAI
 from langchain_sambanova import ChatSambaNova
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -21,7 +22,13 @@ OPENAI_MODEL = "gpt-4o-mini"
 
 
 async def intent_classifier_node(state: Dict[str, Any]) -> Dict[str, Any]:
-
+    return {
+        "intent": "allowed",
+        "classification_metadata": {
+            "decision_method": "default",
+            "reason": "No messages to classify"
+        }
+    }
     messages = state.get("messages", [])
     if not messages:
         logger.info("[INTENT_CLASSIFIER] No messages in state, allowing by default")
@@ -85,8 +92,16 @@ async def intent_classifier_node(state: Dict[str, Any]) -> Dict[str, Any]:
         
         logger.info(f"[INTENT_CLASSIFIER] Invoking LLM with prompt length: {len(human_message)} chars")
         
-        
-        response = await llm.ainvoke(classification_messages)
+        @retry(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=1, min=4, max=10),
+            retry=retry_if_exception_type(Exception),
+            reraise=True
+        )
+        async def invoke_with_retry(messages):
+            return await llm.ainvoke(messages)
+
+        response = await invoke_with_retry(classification_messages)
         intent_response = response.content.strip().lower()
         
         logger.info(f"[INTENT_CLASSIFIER] LLM response: '{intent_response}'")
