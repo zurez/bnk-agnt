@@ -148,26 +148,33 @@ timestamp: new Date(Date.now() - (rawMessages.length - index) * 1000),
       result.push(lm);
     });
 
-    // Sort by timestamp and dedupe by ID
+    // Dedupe by ID and sort by timestamp
     const seenFinal = new Set<string>();
     return result
       .filter(m => {
         if (seenFinal.has(m.id)) return false;
         seenFinal.add(m.id);
         return true;
-      });
+      })
+      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
   }, [visibleMessages, localMessages]);
 
   // Add local message helper
   const addLocalMessage = useCallback((role: 'user' | 'assistant', content: string, component?: React.ReactNode) => {
     const id = `local-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    setLocalMessages(prev => [...prev, {
-      id,
-      role,
-      content,
-      timestamp: new Date(),
-      component,
-    }]);
+    setLocalMessages(prev => {
+      // Use timestamp that's 1 second after the last message to maintain chronological order
+      const lastTimestamp = prev.length > 0 ? prev[prev.length - 1].timestamp : new Date();
+      const newTimestamp = new Date(lastTimestamp.getTime() + 1000);
+      
+      return [...prev, {
+        id,
+        role,
+        content,
+        timestamp: newTimestamp,
+        component,
+      }];
+    });
   }, []);
 
   const handleSend = async (e?: React.FormEvent, overridePrompt?: string) => {
