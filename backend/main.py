@@ -6,10 +6,14 @@ try:
 except ImportError:
     pass
 
-import logging
+
 from dotenv import load_dotenv
 
 load_dotenv()
+
+import logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 from openinference.instrumentation.langchain import LangChainInstrumentor
 from config import settings
@@ -18,17 +22,27 @@ if settings.is_arize_phoenix_enabled():
     # Use Arize cloud Phoenix with space_id and api_key
     from arize.otel import register
     
-    tracer_provider = register(
-        space_id=settings.phoenix_space_id,
-        api_key=settings.phoenix_api_key,
-        project_name=settings.phoenix_project_name,
-    )
+    logger.info(f"Configuring Arize Phoenix with Space ID: {settings.phoenix_space_id[:4]}... and Project: {settings.phoenix_project_name}")
+    
+    try:
+        tracer_provider = register(
+            space_id=settings.phoenix_space_id,
+            api_key=settings.phoenix_api_key,
+            project_name=settings.phoenix_project_name,
+            set_global_tracer_provider=True,
+            batch=True,
+        )
+    except Exception as e:
+        logger.error(f"Failed to register Arize Phoenix: {e}")
+        raise e
 else:
     from phoenix.otel import register
     
     tracer_provider = register(
         project_name=settings.phoenix_project_name,
         endpoint=settings.phoenix_collector_endpoint,
+        set_global_tracer_provider=True,
+        batch=True,
     )
 
 
@@ -44,8 +58,7 @@ from bankbot.graph import graph
 from copilotkit import LangGraphAGUIAgent, LangGraphAgent
 from copilotkit.integrations.fastapi import add_fastapi_endpoint
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+
 
 app = FastAPI(title="Chatbot for Learning")
 

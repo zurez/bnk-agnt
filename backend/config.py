@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     intent_classifier_model: str = "sambanova"
     intent_classifier_url: str = "https://api.sambanova.ai/v1/chat/completions"
     
+    # OpenAI
+    default_model: str = "gpt-4-turbo"
+    
     # Transfer Limits
     max_transfer_amount: float = 1_000_000.0  # AED
     
