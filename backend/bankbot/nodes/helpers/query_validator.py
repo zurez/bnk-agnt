@@ -1,4 +1,6 @@
 import re
+import unicodedata
+
 BLOCKED_PATTERNS = [
     # Financial crimes
     r'\b(money\s*launder|launder\s*money)\b',
@@ -59,11 +61,13 @@ SUSPICIOUS_PATTERNS = [
 ]
 
 def validate_query(query: str) -> bool:
-    """_summary_
+  """_summary_
 
     valifates query and returns a bool
+
     """
-    query_lower = query.lower()
+    query_normalized = unicodedata.normalize('NFKC', query)
+    query_lower = query_normalized.lower()
     
     
     for pattern in BLOCKED_PATTERNS:
@@ -71,14 +75,14 @@ def validate_query(query: str) -> bool:
             return False
            
     for pattern in SUSPICIOUS_PATTERNS:
-        if re.search(pattern, query, re.IGNORECASE):
+        if re.search(pattern, query_normalized, re.IGNORECASE):
             return False
 
-    if len(query) > 10000:
+    if len(query_normalized) > 10000:
         return False
     
 
-    if re.search(r'(.{10,})\1{10,}', query):
+    if re.search(r'(.{10,})\1{10,}', query_normalized):
         return False
     
     return True
