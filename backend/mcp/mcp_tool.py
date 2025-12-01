@@ -1,10 +1,11 @@
 
 from datetime import datetime, date
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from langchain_core.tools import tool
 from pydantic import Field, field_validator
 import json
 import uuid
+import math
 from mcp.mcp_impl import BankingMCPServer
 from config import settings
 
@@ -19,6 +20,30 @@ def custom_serializer(obj):
     if isinstance(obj, uuid.UUID):
         return str(obj)
     raise TypeError(f"Type {type(obj)} not serializable")
+
+def validate_amount(amount: float) -> Decimal:
+
+    if not isinstance(amount, (int, float)):
+        raise ValueError(f"Invalid amount type: {type(amount).__name__}. Expected int or float.")
+    
+    if math.isnan(amount):
+        raise ValueError("Invalid amount value: NaN (Not a Number)")
+    if math.isinf(amount):
+        raise ValueError("Invalid amount value: Infinity")
+    
+    try:
+        decimal_amount = Decimal(str(amount)).quantize(Decimal('0.01'))
+    except (InvalidOperation, ValueError) as e:
+        raise ValueError(f"Cannot convert amount to valid currency value: {e}")
+
+    if decimal_amount <= 0:
+        raise ValueError(f"Amount must be positive, got: {decimal_amount} AED")
+    
+    max_allowed = Decimal(str(settings.max_transfer_amount))
+    if decimal_amount > max_allowed:
+        raise ValueError(f"Amount {decimal_amount} AED exceeds maximum transfer limit of {max_allowed} AED")
+    
+    return decimal_amount
 
 @tool
 async def get_balance(user_id: str) -> str:
@@ -91,20 +116,17 @@ async def propose_transfer(
     Returns:
         Proposal details with proposal_id for approval
     """
-    if amount <= 0:
+    # Validate amount with comprehensive checks
+    try:
+        validated_amount = validate_amount(amount)
+    except ValueError as e:
         return json.dumps({
             "success": False,
-            "error": f"Invalid amount: {amount}. Amount must be positive."
-        })
-    
-    if amount > settings.max_transfer_amount:
-        return json.dumps({
-            "success": False,
-            "error": f"Amount {amount} AED exceeds maximum transfer limit of {settings.max_transfer_amount} AED."
+            "error": str(e)
         })
     
     result = await mcp_server.propose_transfer(
-        user_id, from_account_name, to_beneficiary_nickname, amount, description
+        user_id, from_account_name, to_beneficiary_nickname, float(validated_amount), description
     )
     return json.dumps(result, default=custom_serializer)
 
@@ -127,20 +149,17 @@ async def propose_internal_transfer(
         amount: Amount to transfer in AED (must be positive and <= max limit)
         description: Optional transfer description
     """
-    if amount <= 0:
+    # Validate amount with comprehensive checks
+    try:
+        validated_amount = validate_amount(amount)
+    except ValueError as e:
         return json.dumps({
             "success": False,
-            "error": f"Invalid amount: {amount}. Amount must be positive."
-        })
-    
-    if amount > settings.max_transfer_amount:
-        return json.dumps({
-            "success": False,
-            "error": f"Amount {amount} AED exceeds maximum transfer limit of {settings.max_transfer_amount} AED."
+            "error": str(e)
         })
     
     result = await mcp_server.propose_internal_transfer(
-        user_id, from_account_name, to_account_name, amount, description
+        user_id, from_account_name, to_account_name, float(validated_amount), description
     )
     return json.dumps(result, default=custom_serializer)
 
@@ -254,17 +273,4 @@ MCP_TOOLS = [
 ]
 
 
-MCP_TOOL_NAMES = {
-    "get_balance",
-    "get_transactions",
-    "get_spend_by_category",
-    "get_beneficiaries",
-    "add_beneficiary",
-    "remove_beneficiary",
-    "propose_transfer",
-    "propose_internal_transfer",
-    "approve_transfer",
-    "reject_transfer",
-    "get_pending_transfers",
-    "get_transfer_history",
-}
+MCP_TOOL_NAMES = {t.name for t in MCP_TOOLS}
