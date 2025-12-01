@@ -2,6 +2,7 @@
 import asyncio
 import random
 import logging
+import re
 
 from langchain_core.messages import AIMessage, SystemMessage
 from langchain_openai import ChatOpenAI
@@ -28,6 +29,26 @@ SAMBANOVA_MODELS = {
 MAX_RETRIES = 3
 
 tool_manager = ToolManager(backend_tools=MCP_TOOLS)
+
+
+def sanitize_for_prompt(value: str) -> str:
+    """Remove characters that could be used for prompt injection.
+    
+    This function protects against prompt injection attacks by:
+    1. Removing control characters and potential delimiters
+    2. Removing common injection patterns (system/user/assistant role markers)
+    3. Limiting the length of the input
+    
+    Args:
+        value: The string to sanitize
+        
+    Returns:
+        Sanitized string safe for inclusion in system prompts
+    """
+   
+    sanitized = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', value) 
+    sanitized = re.sub(r'(system|user|assistant):', '', sanitized, flags=re.I)
+    return sanitized[:150]
 
 
 def get_llm(model_name: str):
@@ -69,7 +90,7 @@ async def agent_node(state: AgentState):
     
     llm_with_tools = llm.bind_tools(all_tools, parallel_tool_calls=False)
     
-    system_message = f"{get_system_prompt()}\n\nCurrent User ID: {user_id}"
+    system_message = f"{get_system_prompt()}\n\nCurrent User ID: {sanitize_for_prompt(user_id)}"
     history = [SystemMessage(content=system_message)] + list(messages)
     
 
