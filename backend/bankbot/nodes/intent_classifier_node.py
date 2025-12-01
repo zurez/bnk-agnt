@@ -22,13 +22,7 @@ OPENAI_MODEL = "gpt-4o-mini"
 
 
 async def intent_classifier_node(state: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        "intent": "allowed",
-        "classification_metadata": {
-            "decision_method": "default",
-            "reason": "No messages to classify"
-        }
-    }
+
     messages = state.get("messages", [])
     if not messages:
         logger.info("[INTENT_CLASSIFIER] No messages in state, allowing by default")
