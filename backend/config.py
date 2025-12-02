@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     
     # Intent Classifier
     intent_classifier_model_provider: str = "sambanova"
-    intent_classifier_model: str = "Qwen3-32B"
+    intent_classifier_model: str = "Meta-Llama-3.1-8B-Instruct"
     intent_classifier_url: str = "https://api.sambanova.ai/v1/chat/completions"
     
     # OpenAI
