@@ -12,6 +12,7 @@ from mcp.mcp_tool import MCP_TOOLS
 from bankbot.tool_manager import ToolManager
 from langchain_sambanova import ChatSambaNova
 from bankbot.nodes.grounding_validator import GroundingValidator
+from config import settings
 
 
 logger = logging.getLogger(__name__)
@@ -50,45 +51,52 @@ def validate_user_id(user_id: str) -> str:
 def sanitize_msg(text: str) -> str:
     if not text or not isinstance(text, str):
         return "[Empty message]"
-    
-    # strip control chars and cap length
-    cleaned = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', text)[:2000].strip()
+     
+    cleaned = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', text)[:settings.max_message_length].strip()
     return cleaned or "[Empty message]"
 
 
 def scrub_response(response: AIMessage) -> AIMessage:
-    """Clean up LLM output before showing to user."""
     content = response.content
-    
-    # check for accidental system prompt regurgitation
+
     content_lower = content.lower()
     if any(marker in content_lower for marker in SYSTEM_PROMPT_MARKERS):
         logger.warning("System prompt leakage detected, blocking response")
         return AIMessage(content="I apologize, but I encountered an error. Please try again.")
     
-    # basic XSS scrubbing (belt and suspenders)
+    
     content = re.sub(r'<script|javascript:|on\w+\s*=', '', content, flags=re.I)
     
     return AIMessage(content=content, tool_calls=response.tool_calls)
 
 
-def get_llm(model_name: str):
-    if model_name not in SAMBANOVA_MODELS:
-        return ChatOpenAI(model="gpt-4-turbo", temperature=0, streaming=True)
+def get_llm(model_name: str, openai_api_key: str = None, sambanova_api_key: str = None):
+    # Determine which keys to use
     
-    # reasoning models need more room to think
+    if model_name not in SAMBANOVA_MODELS:
+        # OpenAI
+        api_key = openai_api_key if (settings.allow_user_keys and openai_api_key) else None
+        return ChatOpenAI(
+            model=settings.default_model, 
+            temperature=0, 
+            streaming=True,
+            api_key=api_key
+        )
+    
     is_reasoning = "r1" in model_name.lower()
+    api_key = sambanova_api_key if (settings.allow_user_keys and sambanova_api_key) else None
+    
     return ChatSambaNova(
         model=SAMBANOVA_MODELS[model_name],
-        max_tokens=4096 if is_reasoning else 2048,
-        temperature=0.6 if is_reasoning else 0,
-        top_p=0.95 if is_reasoning else 0.01,
+        max_tokens=settings.sambanova_max_tokens,
+        temperature=settings.sambanova_reasoning_temperature if is_reasoning else 0,
+        top_p=settings.sambanova_reasoning_top_p if is_reasoning else settings.sambanova_standard_top_p,
         streaming=True,
+        sambanova_api_key=api_key
     )
 
 
 def is_retryable(err_msg: str) -> bool:
-    """Rate limits, server errors, network hiccups - worth retrying."""
     err = err_msg.lower()
     return any(x in err for x in ["429", "rate_limit", "500", "503", "timeout", "connection", "network"])
 
@@ -102,14 +110,19 @@ async def agent_node(state: AgentState):
         logger.warning(f"No messages for user {user_id}")
         return {"messages": [AIMessage(content="No input provided. Please send a message to start the conversation.")]}
     
-    llm = get_llm(model_name)
+    openai_key = state.get("openai_api_key")
+    sambanova_key = state.get("sambanova_api_key")
+
+    if settings.require_user_keys and not (openai_key or sambanova_key):
+        return {"messages": [AIMessage(content="[SYSTEM_ERROR: MISSING_API_KEY]")]}
+    
+    llm = get_llm(model_name, openai_api_key=openai_key, sambanova_api_key=sambanova_key)
     tools = tool_manager.get_all_tools(state)
     llm_with_tools = llm.bind_tools(tools, parallel_tool_calls=False)
     
     validated_id = validate_user_id(user_id)
     system_msg = f"{get_system_prompt()}\n\nCurrent User ID: {validated_id}"
     
-    # sanitize human messages, pass thru everything else
     clean_msgs = []
     for msg in messages:
         if getattr(msg, 'type', None) == 'human':
@@ -119,7 +132,6 @@ async def agent_node(state: AgentState):
     
     history = [SystemMessage(content=system_msg)] + clean_msgs
     
-    # track what the LLM should actualy know from tool calls
     grounding = GroundingValidator()
     for msg in messages:
         if isinstance(msg, ToolMessage):
