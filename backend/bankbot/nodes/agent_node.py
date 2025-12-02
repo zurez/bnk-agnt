@@ -10,95 +10,17 @@ from bankbot.state import AgentState
 from bankbot.nodes.helpers.prompt_helper import get_system_prompt
 from mcp.mcp_tool import MCP_TOOLS
 from bankbot.tool_manager import ToolManager
-from langchain_sambanova import ChatSambaNova
 from bankbot.nodes.grounding_validator import GroundingValidator
 from config import settings
+from bankbot.utils.agent_utils import validate_user_id, sanitize_msg, scrub_response, is_retryable
+from bankbot.utils.llm_utils import get_llm
 
 
 logger = logging.getLogger(__name__)
 
-SAMBANOVA_MODELS = {
-    "deepseek-r1": "DeepSeek-R1-0528",
-    "deepseek-v3": "DeepSeek-V3-0324",
-    "deepseek-v3.1": "DeepSeek-V3.1",
-    "deepseek-r1-distill": "DeepSeek-R1-Distill-Llama-70B",
-    "llama-3.3-70b": "Meta-Llama-3.3-70B-Instruct",
-    "llama-3.1-8b": "Meta-Llama-3.1-8B-Instruct",
-    "qwen3-32b": "Qwen3-32B",
-}
-
 MAX_RETRIES = 3
-UUID_PATTERN = re.compile(r'^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$', re.I)
-
-# stuff we really dont want leaking out
-SYSTEM_PROMPT_MARKERS = [
-    "critical: how to use tools",
-    "current user id:",
-    "backend tools",
-    "frontend tools"
-]
-
 tool_manager = ToolManager(backend_tools=MCP_TOOLS)
 
-
-def validate_user_id(user_id: str) -> str:
-    if not UUID_PATTERN.match(user_id):
-        logger.warning(f"Invalid UUID: {user_id[:20]}...")
-        return "invalid"
-    return user_id
-
-
-def sanitize_msg(text: str) -> str:
-    if not text or not isinstance(text, str):
-        return "[Empty message]"
-     
-    cleaned = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', text)[:settings.max_message_length].strip()
-    return cleaned or "[Empty message]"
-
-
-def scrub_response(response: AIMessage) -> AIMessage:
-    content = response.content
-
-    content_lower = content.lower()
-    if any(marker in content_lower for marker in SYSTEM_PROMPT_MARKERS):
-        logger.warning("System prompt leakage detected, blocking response")
-        return AIMessage(content="I apologize, but I encountered an error. Please try again.")
-    
-    
-    content = re.sub(r'<script|javascript:|on\w+\s*=', '', content, flags=re.I)
-    
-    return AIMessage(content=content, tool_calls=response.tool_calls)
-
-
-def get_llm(model_name: str, openai_api_key: str = None, sambanova_api_key: str = None):
-    # Determine which keys to use
-    
-    if model_name not in SAMBANOVA_MODELS:
-        # OpenAI
-        api_key = openai_api_key if (settings.allow_user_keys and openai_api_key) else None
-        return ChatOpenAI(
-            model=settings.default_model, 
-            temperature=0, 
-            streaming=True,
-            api_key=api_key
-        )
-    
-    is_reasoning = "r1" in model_name.lower()
-    api_key = sambanova_api_key if (settings.allow_user_keys and sambanova_api_key) else None
-    
-    return ChatSambaNova(
-        model=SAMBANOVA_MODELS[model_name],
-        max_tokens=settings.sambanova_max_tokens,
-        temperature=settings.sambanova_reasoning_temperature if is_reasoning else 0,
-        top_p=settings.sambanova_reasoning_top_p if is_reasoning else settings.sambanova_standard_top_p,
-        streaming=True,
-        sambanova_api_key=api_key
-    )
-
-
-def is_retryable(err_msg: str) -> bool:
-    err = err_msg.lower()
-    return any(x in err for x in ["429", "rate_limit", "500", "503", "timeout", "connection", "network"])
 
 
 async def agent_node(state: AgentState):
