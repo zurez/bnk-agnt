@@ -17,12 +17,14 @@ class Settings(BaseSettings):
     require_user_keys: bool = False
     
     # Intent Classifier
-    intent_classifier_model_provider: str = "sambanova"
-    intent_classifier_model: str = "Meta-Llama-3.3-70B-Instruct"
-    intent_classifier_url: str = "https://api.sambanova.ai/v1/chat/completions"
+    intent_classifier_model_provider: str = "openai"
+    intent_classifier_sambanova_model: str = "Meta-Llama-3.1-8B-Instruct"
+    intent_classifier_openai_model: str = "gpt-4o"
+    
+    intent_classifier_sambanova_url: str = "https://api.sambanova.ai/v1/chat/completions"
     
     # OpenAI
-    default_model: str = "gpt-4-turbo"
+    default_model: str = "gpt-4o"
     
     # Transfer Limits
     max_transfer_amount: float = 1_000_000.0  # AED
