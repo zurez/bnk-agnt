@@ -15,7 +15,10 @@ import {
   ChevronDown,
   Check,
   Loader2,
-  Bot
+  Bot,
+  Settings,
+  X,
+  Key
 } from 'lucide-react';
 
 import { Sidebar } from '../components/Sidebar';
@@ -25,6 +28,7 @@ import { TransferMoney } from '../components/TransferMoney';
 import { SpendingChart } from '../components/SpendingChart';
 import { BankingChat } from '../components/BankingChat';
 import { AddBeneficiaryForm } from '../components/AddBeneficiaryForm';
+import { TransactionList } from '../components/TransactionList';
 
 // --- DATA & TYPES ---
 interface UserType {
@@ -77,11 +81,26 @@ interface PageContentProps {
   setSelectedUserId: (id: string) => void;
   selectedModelId: string;
   setSelectedModelId: (id: string) => void;
+  openaiKey: string;
+  setOpenaiKey: (key: string) => void;
+  sambanovaKey: string;
+  setSambanovaKey: (key: string) => void;
 }
 
-function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSelectedModelId }: PageContentProps) {
+function PageContent({ 
+  selectedUserId, 
+  setSelectedUserId, 
+  selectedModelId, 
+  setSelectedModelId,
+  openaiKey,
+  setOpenaiKey,
+  sambanovaKey,
+  setSambanovaKey
+}: PageContentProps) {
   const selectedUser = users.find(u => u.id === selectedUserId);
   const [inputValue, setInputValue] = useState("");
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   
   // Local messages for components from frontend actions
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
@@ -104,11 +123,12 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
 
   // Add this useEffect to debug streaming messages
   useEffect(() => {
-    console.log('=== VISIBLE MESSAGES UPDATE ===');
-    console.log('Count:', visibleMessages?.length);
-    visibleMessages?.forEach((msg: any, i: number) => {
-      console.log(`[${i}] Type: ${msg?.type}, Content length: ${msg?.content?.length || 0}`);
-    });
+    // Check for missing API key error
+    const lastMsg = visibleMessages?.[visibleMessages.length - 1] as any;
+    if (lastMsg?.isTextMessage() && lastMsg?.content?.includes('[SYSTEM_ERROR: MISSING_API_KEY]')) {
+      setSettingsError("An API key is required to proceed. Please enter your key below.");
+      setIsSettingsOpen(true);
+    }
   }, [visibleMessages]);
 
   // Build messages from visibleMessages + local messages
@@ -147,9 +167,12 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
     rawMessages.forEach((msg, index) => {
       // Process TextMessage
       if (msg?.type === 'TextMessage' && msg?.content && !seenIds.has(msg.id)) {
+        // Skip system error messages
+        if (msg.content.includes('[SYSTEM_ERROR: MISSING_API_KEY]')) return;
+
         seenIds.add(msg.id);
         const content = stripThinkingTags(msg.content);
-        if (content) {
+        if (content && content.trim().toLowerCase() !== 'allowed') {
           result.push({
             id: msg.id,
             role: msg.role === 'user' ? 'user' : 'assistant',
@@ -168,7 +191,7 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
           
           seenIds.add(stateMsg.id);
           const content = stripThinkingTags(stateMsg.content);
-          if (content) {
+          if (content && content.trim().toLowerCase() !== 'allowed') {
             result.push({
               id: stateMsg.id,
               role: stateMsg.role as 'user' | 'assistant',
@@ -299,7 +322,7 @@ function PageContent({ selectedUserId, setSelectedUserId, selectedModelId, setSe
       }
     ],
     handler: async ({ beneficiaries }: { beneficiaries?: any[] | string }) => {
-      console.log('showBeneficiaries called with:', beneficiaries, typeof beneficiaries);
+
       
       let benData: any[] = [];
       
@@ -522,11 +545,11 @@ useCopilotAction({
       if (txList.length === 0) {
         addLocalMessage('assistant', "No transactions found for the specified criteria.");
       } else {
-        const content = txList.slice(0, 10).map((t: any) => {
-          const sign = t.type === 'credit' || t.type === 'transfer_in' ? '+' : '-';
-          return `• ${sign}${t.amount} ${t.currency || 'AED'} - ${t.description || t.category} (${new Date(t.timestamp).toLocaleDateString()})`;
-        }).join('\n');
-        addLocalMessage('assistant', `Here are your recent transactions:\n\n${content}`);
+        addLocalMessage(
+          'assistant', 
+          "Here are your recent transactions:",
+          <TransactionList transactions={txList} />
+        );
       }
       return "Displayed transactions to user";
     }
@@ -605,8 +628,96 @@ useCopilotAction({
                 </div>
              </div>
              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-xs font-bold border border-blue-500/20 text-white cursor-pointer hover:ring-2 ring-blue-500/50 transition-all shadow-[0_0_15px_rgba(37,99,235,0.3)]">{selectedUser?.name.charAt(0)}</div>
+             
+             {/* Settings Button */}
+             <button 
+               onClick={() => setIsSettingsOpen(true)}
+               className="p-2 rounded-full bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+             >
+               <Settings size={16} />
+             </button>
           </div>
         </header>
+
+        {/* Settings Modal */}
+        {isSettingsOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <div className="bg-zinc-950 border border-zinc-800 rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+              <div className="flex items-center justify-between p-4 border-b border-zinc-800 bg-zinc-900/50">
+                <h3 className="font-semibold text-white flex items-center gap-2">
+                  <Settings size={16} className="text-blue-500" />
+                  API Configuration
+                </h3>
+                <button 
+                  onClick={() => {
+                    setIsSettingsOpen(false);
+                    setSettingsError(null);
+                  }}
+                  className="p-1 rounded-md text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              
+              <div className="p-6 space-y-6">
+                {settingsError && (
+                  <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 flex items-start gap-2">
+                    <div className="mt-0.5 text-red-500 shrink-0">
+                      <X size={14} />
+                    </div>
+                    <p className="text-xs text-red-400 font-medium">{settingsError}</p>
+                  </div>
+                )}
+
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-zinc-400 flex items-center gap-1.5">
+                      <Key size={12} /> OpenAI API Key
+                    </label>
+                    <input 
+                      type="password" 
+                      value={openaiKey}
+                      onChange={(e) => setOpenaiKey(e.target.value)}
+                      placeholder="sk-..."
+                      className="w-full bg-zinc-900/50 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 transition-all"
+                    />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-zinc-400 flex items-center gap-1.5">
+                      <Key size={12} /> SambaNova API Key
+                    </label>
+                    <input 
+                      type="password" 
+                      value={sambanovaKey}
+                      onChange={(e) => setSambanovaKey(e.target.value)}
+                      placeholder="Enter your SambaNova key..."
+                      className="w-full bg-zinc-900/50 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 transition-all"
+                    />
+                  </div>
+                </div>
+                
+                <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
+                  <p className="text-xs text-blue-400">
+                    Your keys are stored locally in your browser session and are never saved to our servers.
+                  </p>
+                </div>
+              </div>
+              
+              <div className="p-4 border-t border-zinc-800 bg-zinc-900/30 flex justify-end">
+                <button 
+                  onClick={() => {
+                    setIsSettingsOpen(false);
+                    setSettingsError(null);
+                  }}
+                  className="px-4 py-2 bg-white text-black text-sm font-medium rounded-lg hover:bg-zinc-200 transition-colors"
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="flex-1 overflow-hidden relative flex flex-col">
           <BankingChat messages={messages} isTyping={isLoading} thinkingStep="Thinking..." onSend={handleSend} />
@@ -630,23 +741,36 @@ useCopilotAction({
 
 export default function App() {
   const DEFAULT_USER_ID = users[0].id; 
-  const DEFAULT_MODEL_ID = models[0].id;
+  const DEFAULT_MODEL_ID = 'qwen3-32b';
 
   const [selectedUserId, setSelectedUserId] = useState(DEFAULT_USER_ID);
   const [selectedModelId, setSelectedModelId] = useState(DEFAULT_MODEL_ID);
   
+  // API Keys state
+  const [openaiKey, setOpenaiKey] = useState("");
+  const [sambanovaKey, setSambanovaKey] = useState("");
+  
   return (
     <CopilotKit 
-      key={`${selectedUserId}-${selectedModelId}`}
+      key={`${selectedUserId}-${selectedModelId}-${openaiKey}-${sambanovaKey}`}
       runtimeUrl="/api/copilotkit" 
       agent="bankbot" 
-      properties={{ user_id: selectedUserId, model_name: selectedModelId }}
+      properties={{ 
+        user_id: selectedUserId, 
+        model_name: selectedModelId,
+        openai_api_key: openaiKey,
+        sambanova_api_key: sambanovaKey
+      }}
     >
       <PageContent 
         selectedUserId={selectedUserId} 
         setSelectedUserId={setSelectedUserId} 
         selectedModelId={selectedModelId} 
-        setSelectedModelId={setSelectedModelId} 
+        setSelectedModelId={setSelectedModelId}
+        openaiKey={openaiKey}
+        setOpenaiKey={setOpenaiKey}
+        sambanovaKey={sambanovaKey}
+        setSambanovaKey={setSambanovaKey}
       />
     </CopilotKit>
   );
