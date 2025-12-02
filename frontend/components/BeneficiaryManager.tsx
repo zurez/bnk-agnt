@@ -23,7 +23,7 @@ interface BeneficiaryManagerProps {
 
 export const BeneficiaryManager = ({ beneficiaries }: BeneficiaryManagerProps) => {
   const beneficiaryList = useMemo(() => {
-    console.log('BeneficiaryManager received:', beneficiaries, typeof beneficiaries);
+
     
     if (!beneficiaries) {
       return [];
