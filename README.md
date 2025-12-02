@@ -64,7 +64,13 @@ An intelligent banking assistant powered by LangGraph, FastAPI, and CopilotKit. 
    # Edit .env and add your API keys
    ```
 
-3. **Start all services**
+3. **Start all services using the convenience script**
+   ```bash
+   chmod +x start_app.sh
+   ./start_app.sh
+   ```
+   
+   Or manually:
    ```bash
    docker-compose up -d
    ```
@@ -141,6 +147,21 @@ An intelligent banking assistant powered by LangGraph, FastAPI, and CopilotKit. 
 5. **Access the application**
    - Frontend: http://localhost:3000
    - Backend API: http://localhost:8000/docs
+
+## 🚀 Convenience Script
+
+The `start_app.sh` script provides a quick way to rebuild and restart all Docker services:
+
+```bash
+chmod +x start_app.sh
+./start_app.sh
+```
+
+This script will:
+1. Stop all running containers
+2. Rebuild all images (no cache)
+3. Start all services in detached mode
+4. Display access URLs for all services
 
 ## ⚙️ Environment Variables
 
