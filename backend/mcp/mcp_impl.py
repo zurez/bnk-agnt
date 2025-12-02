@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime
 from typing import List, Optional
 from sqlalchemy import create_engine, select, text, MetaData, insert, update, and_, func
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
 import logging
 
@@ -12,20 +13,38 @@ from shared.models import TransferStatus, TransactionType, APIError
 
 logger = logging.getLogger(__name__)
 
-engine = create_engine(settings.database_url)
+# Temporary sync engine for reflection
+sync_engine = create_engine(settings.database_url)
 metadata = MetaData()
 
 try:
-    metadata.reflect(bind=engine)
+    metadata.reflect(bind=sync_engine)
     users = metadata.tables['users']
     accounts = metadata.tables['accounts']
     transactions = metadata.tables['transactions']
     beneficiaries = metadata.tables['beneficiaries']
     transfer_log = metadata.tables['transfer_log']
+    sync_engine.dispose()
 except Exception as e:
     logger.error(f"Failed to connect to database or load schema: {e}")
     logger.error(f"Database URL: {settings.database_url}")
     raise RuntimeError(f"Database initialization failed. Please ensure the database is running and tables are created. Error: {e}") from e
+
+from sqlalchemy.engine.url import make_url
+
+database_url = settings.database_url
+if database_url.startswith("postgresql://"):
+    database_url = database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+url = make_url(database_url)
+query = dict(url.query)
+for key in ("sslmode","channel_binding"):
+    query.pop(key, None)
+
+if query != url.query:
+    url = url.set(query=query)
+
+engine = create_async_engine(url)
 
 
 class BankingMCPServer:
@@ -33,16 +52,13 @@ class BankingMCPServer:
     
     async def get_balance(self, user_id: str) -> List[dict]:
         """Get all account balances for a user."""
-        def _sync_get_balance():
-            with engine.connect() as conn:
-                result = conn.execute(
-                    select(accounts).where(
-                        and_(accounts.c.user_id == user_id, accounts.c.is_active == True)
-                    )
+        async with engine.connect() as conn:
+            result = await conn.execute(
+                select(accounts).where(
+                    and_(accounts.c.user_id == user_id, accounts.c.is_active == True)
                 )
-                return [self._row_to_dict(row) for row in result]
-        
-        return await asyncio.to_thread(_sync_get_balance)
+            )
+            return [self._row_to_dict(row) for row in result]
 
     async def get_transactions(
         self,
@@ -54,30 +70,27 @@ class BankingMCPServer:
         offset: int = 0
     ) -> List[dict]:
         """Get transaction history with optional filters."""
-        def _sync_get_transactions():
-            query = select(
-                transactions,
-                accounts.c.name.label('account_name')
-            ).select_from(
-                transactions.join(accounts, transactions.c.account_id == accounts.c.id)
-            ).where(
-                accounts.c.user_id == user_id
-            )
-            
-            if from_date:
-                query = query.where(transactions.c.timestamp >= from_date)
-            if to_date:
-                query = query.where(transactions.c.timestamp <= to_date)
-            if category:
-                query = query.where(transactions.c.category == category)
-            
-            query = query.order_by(transactions.c.timestamp.desc()).limit(limit).offset(offset)
-            
-            with engine.connect() as conn:
-                result = conn.execute(query)
-                return [dict(row._mapping) for row in result]
-
-        return await asyncio.to_thread(_sync_get_transactions)
+        query = select(
+            transactions,
+            accounts.c.name.label('account_name')
+        ).select_from(
+            transactions.join(accounts, transactions.c.account_id == accounts.c.id)
+        ).where(
+            accounts.c.user_id == user_id
+        )
+        
+        if from_date:
+            query = query.where(transactions.c.timestamp >= from_date)
+        if to_date:
+            query = query.where(transactions.c.timestamp <= to_date)
+        if category:
+            query = query.where(transactions.c.category == category)
+        
+        query = query.order_by(transactions.c.timestamp.desc()).limit(limit).offset(offset)
+        
+        async with engine.connect() as conn:
+            result = await conn.execute(query)
+            return [dict(row._mapping) for row in result]
 
     async def get_spend_by_category(
         self,
@@ -86,53 +99,47 @@ class BankingMCPServer:
         to_date: str = None
     ) -> List[dict]:
         """Get spending aggregated by category with optional date filters."""
-        def _sync_get_spend():
-            conditions = [
-                transactions.c.account_id.in_(
-                    select(accounts.c.id).where(accounts.c.user_id == user_id)
-                ),
-                transactions.c.type.in_(['debit', 'transfer_out'])
-            ]
+        conditions = [
+            transactions.c.account_id.in_(
+                select(accounts.c.id).where(accounts.c.user_id == user_id)
+            ),
+            transactions.c.type.in_(['debit', 'transfer_out'])
+        ]
+        
+        if from_date:
+            conditions.append(transactions.c.timestamp >= from_date)
+        if to_date:
+            conditions.append(transactions.c.timestamp <= to_date)
+        
+        query = select(
+            transactions.c.category,
+            text("SUM(amount) as total")
+        ).where(
+            and_(*conditions)
+        ).group_by(transactions.c.category)
             
-            if from_date:
-                conditions.append(transactions.c.timestamp >= from_date)
-            if to_date:
-                conditions.append(transactions.c.timestamp <= to_date)
-            
-            query = select(
-                transactions.c.category,
-                text("SUM(amount) as total")
-            ).where(
-                and_(*conditions)
-            ).group_by(transactions.c.category)
-                
-            with engine.connect() as conn:
-                result = conn.execute(query)
-                return [{"category": row.category, "total": float(row.total)} for row in result]
-
-        return await asyncio.to_thread(_sync_get_spend)
+        async with engine.connect() as conn:
+            result = await conn.execute(query)
+            return [{"category": row.category, "total": float(row.total)} for row in result]
 
 
     async def get_beneficiaries(self, user_id: str) -> List[dict]:
-        def _sync_get_beneficiaries():
-            query = select(
-                beneficiaries.c.id,
-                beneficiaries.c.nickname,
-                beneficiaries.c.account_number,
-                beneficiaries.c.bank_name,
-                beneficiaries.c.is_internal,
-                users.c.name.label('beneficiary_name')
-            ).select_from(
-                beneficiaries.outerjoin(users, beneficiaries.c.beneficiary_user_id == users.c.id)
-            ).where(
-                and_(beneficiaries.c.user_id == user_id, beneficiaries.c.is_active == True)
-            )
-            
-            with engine.connect() as conn:
-                result = conn.execute(query)
-                return [dict(row._mapping) for row in result]
-
-        return await asyncio.to_thread(_sync_get_beneficiaries)
+        query = select(
+            beneficiaries.c.id,
+            beneficiaries.c.nickname,
+            beneficiaries.c.account_number,
+            beneficiaries.c.bank_name,
+            beneficiaries.c.is_internal,
+            users.c.name.label('beneficiary_name')
+        ).select_from(
+            beneficiaries.outerjoin(users, beneficiaries.c.beneficiary_user_id == users.c.id)
+        ).where(
+            and_(beneficiaries.c.user_id == user_id, beneficiaries.c.is_active == True)
+        )
+        
+        async with engine.connect() as conn:
+            result = await conn.execute(query)
+            return [dict(row._mapping) for row in result]
 
     async def add_beneficiary(
         self,
@@ -141,81 +148,76 @@ class BankingMCPServer:
         nickname: str
     ) -> dict:
       
-        def _sync_add_beneficiary():
-            account_map = {
-                'PDB-ALICE-001': ('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'a1eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'),
-                'PDB-BOB-001': ('b0eebc99-9c0b-4ef8-bb6d-6bb9bd380b22', 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380b22'),
-                'PDB-CAROL-001': ('c0eebc99-9c0b-4ef8-bb6d-6bb9bd380c33', 'c1eebc99-9c0b-4ef8-bb6d-6bb9bd380c33'),
-            }
-            
-            if account_number not in account_map:
-                return {"success": False, "error": f"Account {account_number} not found. Valid accounts: PDB-ALICE-001, PDB-BOB-001, PDB-CAROL-001"}
-            
-            beneficiary_user_id, beneficiary_account_id = account_map[account_number]
-            
-            if beneficiary_user_id == user_id:
-                return {"success": False, "error": "Cannot add yourself as a beneficiary"}
-            
-            with engine.begin() as conn:
-                existing = conn.execute(
-                    select(beneficiaries).where(
-                        and_(
-                            beneficiaries.c.user_id == user_id,
-                            beneficiaries.c.account_number == account_number
-                        )
-                    )
-                ).first()
-                
-                if existing and existing.is_active:
-                    return {"success": False, "error": f"Beneficiary '{existing.nickname}' already exists"}
-                
-                if existing and not existing.is_active:
-                    conn.execute(
-                        update(beneficiaries)
-                        .where(beneficiaries.c.id == existing.id)
-                        .values(
-                            is_active=True,
-                            nickname=nickname,
-                            updated_at=datetime.utcnow()
-                        )
-                    )
-                    return {"success": True, "beneficiary_id": str(existing.id), "message": f"Beneficiary '{nickname}' reactivated successfully"}
-                
-                new_id = str(uuid.uuid4())
-                conn.execute(
-                    insert(beneficiaries).values(
-                        id=new_id,
-                        user_id=user_id,
-                        beneficiary_user_id=beneficiary_user_id,
-                        beneficiary_account_id=beneficiary_account_id,
-                        nickname=nickname,
-                        account_number=account_number,
-                        bank_name=settings.bank_name,
-                        is_internal=True
+        account_map = {
+            'PDB-ALICE-001': ('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'a1eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'),
+            'PDB-BOB-001': ('b0eebc99-9c0b-4ef8-bb6d-6bb9bd380b22', 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380b22'),
+            'PDB-CAROL-001': ('c0eebc99-9c0b-4ef8-bb6d-6bb9bd380c33', 'c1eebc99-9c0b-4ef8-bb6d-6bb9bd380c33'),
+        }
+        
+        if account_number not in account_map:
+            return {"success": False, "error": f"Account {account_number} not found. Valid accounts: PDB-ALICE-001, PDB-BOB-001, PDB-CAROL-001"}
+        
+        beneficiary_user_id, beneficiary_account_id = account_map[account_number]
+        
+        if beneficiary_user_id == user_id:
+            return {"success": False, "error": "Cannot add yourself as a beneficiary"}
+        
+        async with engine.begin() as conn:
+            result = await conn.execute(
+                select(beneficiaries).where(
+                    and_(
+                        beneficiaries.c.user_id == user_id,
+                        beneficiaries.c.account_number == account_number
                     )
                 )
-                
-                return {"success": True, "beneficiary_id": new_id, "message": f"Beneficiary '{nickname}' added successfully"}
-
-        return await asyncio.to_thread(_sync_add_beneficiary)
+            )
+            existing = result.first()
+            
+            if existing and existing.is_active:
+                return {"success": False, "error": f"Beneficiary '{existing.nickname}' already exists"}
+            
+            if existing and not existing.is_active:
+                await conn.execute(
+                    update(beneficiaries)
+                    .where(beneficiaries.c.id == existing.id)
+                    .values(
+                        is_active=True,
+                        nickname=nickname,
+                        updated_at=datetime.utcnow()
+                    )
+                )
+                return {"success": True, "beneficiary_id": str(existing.id), "message": f"Beneficiary '{nickname}' reactivated successfully"}
+            
+            new_id = str(uuid.uuid4())
+            await conn.execute(
+                insert(beneficiaries).values(
+                    id=new_id,
+                    user_id=user_id,
+                    beneficiary_user_id=beneficiary_user_id,
+                    beneficiary_account_id=beneficiary_account_id,
+                    nickname=nickname,
+                    account_number=account_number,
+                    bank_name=settings.bank_name,
+                    is_internal=True
+                )
+            )
+            
+            return {"success": True, "beneficiary_id": new_id, "message": f"Beneficiary '{nickname}' added successfully"}
 
 
     async def remove_beneficiary(self, user_id: str, beneficiary_id: str) -> dict:
         """Soft delete a beneficiary."""
-        def _sync_remove_beneficiary():
-            with engine.begin() as conn:
-                result = conn.execute(
-                    update(beneficiaries)
-                    .where(and_(beneficiaries.c.id == beneficiary_id, beneficiaries.c.user_id == user_id))
-                    .values(is_active=False, updated_at=datetime.utcnow())
-                )
-                
-                if result.rowcount == 0:
-                    return {"success": False, "error": "Beneficiary not found"}
-                
-                return {"success": True, "message": "Beneficiary removed successfully"}
-
-        return await asyncio.to_thread(_sync_remove_beneficiary)
+        async with engine.begin() as conn:
+            result = await conn.execute(
+                update(beneficiaries)
+                .where(and_(beneficiaries.c.id == beneficiary_id, beneficiaries.c.user_id == user_id))
+                .values(is_active=False, updated_at=datetime.utcnow())
+            )
+            
+            if result.rowcount == 0:
+                return {"success": False, "error": "Beneficiary not found"}
+            
+            return {"success": True, "message": "Beneficiary removed successfully"}
 
  
 
@@ -227,76 +229,76 @@ class BankingMCPServer:
         amount: float,
         description: str = ""
     ) -> dict:
-        def _sync_propose_transfer():
-            with engine.begin() as conn:
-                from_account = conn.execute(
-                    select(accounts).where(
-                        and_(
-                            accounts.c.user_id == user_id,
-                            func.lower(accounts.c.name) == from_account_name.lower(),
-                            accounts.c.is_active == True
-                        )
-                    )
-                ).first()
-                
-                if not from_account:
-                    return {"success": False, "error": f"Account '{from_account_name}' not found"}
-                
-                if from_account.balance < amount:
-                    return {"success": False, "error": f"Insufficient funds. Balance: {settings.default_currency} {from_account.balance}"}
-                
-                beneficiary = conn.execute(
-                    select(beneficiaries).where(
-                        and_(
-                            beneficiaries.c.user_id == user_id,
-                            func.lower(beneficiaries.c.nickname) == to_beneficiary_nickname.lower(),
-                            beneficiaries.c.is_active == True
-                        )
-                    )
-                ).first()
-                
-                if not beneficiary:
-                    return {"success": False, "error": f"Beneficiary '{to_beneficiary_nickname}' not found"}
-                
-
-                to_account = conn.execute(
-                    select(accounts).where(accounts.c.id == beneficiary.beneficiary_account_id)
-                ).first()
-                
-                if not to_account:
-                    return {"success": False, "error": "Beneficiary account not found"}
-                
-                if from_account.currency != to_account.currency:
-                    return {
-                        "success": False, 
-                        "error": f"Currency mismatch: source account is {from_account.currency} but destination is {to_account.currency}"
-                    }
-          
-                proposal_id = str(uuid.uuid4())
-                conn.execute(
-                    insert(transfer_log).values(
-                        id=proposal_id,
-                        user_id=user_id,
-                        from_account_id=from_account.id,
-                        to_account_id=beneficiary.beneficiary_account_id,
-                        to_beneficiary_id=beneficiary.id,
-                        amount=amount,
-                        description=description or f"Transfer to {beneficiary.nickname}",
-                        status=TransferStatus.PENDING.value
+        async with engine.begin() as conn:
+            result = await conn.execute(
+                select(accounts).where(
+                    and_(
+                        accounts.c.user_id == user_id,
+                        func.lower(accounts.c.name) == from_account_name.lower(),
+                        accounts.c.is_active == True
                     )
                 )
-                
-                return {
-                    "success": True,
-                    "proposal_id": proposal_id,
-                    "from_account": from_account.name,
-                    "to_beneficiary": beneficiary.nickname,
-                    "amount": amount,
-                    "currency": settings.default_currency,
-                    "message": "Transfer proposal created. Please approve to execute."
-                }
+            )
+            from_account = result.first()
+            
+            if not from_account:
+                return {"success": False, "error": f"Account '{from_account_name}' not found"}
+            
+            if from_account.balance < amount:
+                return {"success": False, "error": f"Insufficient funds. Balance: {settings.default_currency} {from_account.balance}"}
+            
+            result = await conn.execute(
+                select(beneficiaries).where(
+                    and_(
+                        beneficiaries.c.user_id == user_id,
+                        func.lower(beneficiaries.c.nickname) == to_beneficiary_nickname.lower(),
+                        beneficiaries.c.is_active == True
+                    )
+                )
+            )
+            beneficiary = result.first()
+            
+            if not beneficiary:
+                return {"success": False, "error": f"Beneficiary '{to_beneficiary_nickname}' not found"}
+            
 
-        return await asyncio.to_thread(_sync_propose_transfer)
+            result = await conn.execute(
+                select(accounts).where(accounts.c.id == beneficiary.beneficiary_account_id)
+            )
+            to_account = result.first()
+            
+            if not to_account:
+                return {"success": False, "error": "Beneficiary account not found"}
+            
+            if from_account.currency != to_account.currency:
+                return {
+                    "success": False, 
+                    "error": f"Currency mismatch: source account is {from_account.currency} but destination is {to_account.currency}"
+                }
+      
+            proposal_id = str(uuid.uuid4())
+            await conn.execute(
+                insert(transfer_log).values(
+                    id=proposal_id,
+                    user_id=user_id,
+                    from_account_id=from_account.id,
+                    to_account_id=beneficiary.beneficiary_account_id,
+                    to_beneficiary_id=beneficiary.id,
+                    amount=amount,
+                    description=description or f"Transfer to {beneficiary.nickname}",
+                    status=TransferStatus.PENDING.value
+                )
+            )
+            
+            return {
+                "success": True,
+                "proposal_id": proposal_id,
+                "from_account": from_account.name,
+                "to_beneficiary": beneficiary.nickname,
+                "amount": amount,
+                "currency": settings.default_currency,
+                "message": "Transfer proposal created. Please approve to execute."
+            }
 
     async def propose_internal_transfer(
         self,
@@ -306,266 +308,255 @@ class BankingMCPServer:
         amount: float,
         description: str = ""
     ) -> dict:
-        def _sync_propose_internal_transfer():
-            with engine.begin() as conn:
-
-                from_account = conn.execute(
-                    select(accounts).where(
-                        and_(
-                            accounts.c.user_id == user_id,
-                            func.lower(accounts.c.name) == from_account_name.lower()
-                        )
-                    )
-                ).first()
-                
-                if not from_account:
-                    return {"success": False, "error": f"Source account '{from_account_name}' not found"}
-                
-                to_account = conn.execute(
-                    select(accounts).where(
-                        and_(
-                            accounts.c.user_id == user_id,
-                            func.lower(accounts.c.name) == to_account_name.lower()
-                        )
-                    )
-                ).first()
-                
-                if not to_account:
-                    return {"success": False, "error": f"Destination account '{to_account_name}' not found"}
-                
-                if from_account.id == to_account.id:
-                    return {"success": False, "error": "Cannot transfer to the same account"}
-                
-                if from_account.currency != to_account.currency:
-                    return {
-                        "success": False,
-                        "error": f"Currency mismatch: {from_account.name} is {from_account.currency} but {to_account.name} is {to_account.currency}"
-                    }
-                
-                if from_account.balance < amount:
-                    return {"success": False, "error": f"Insufficient funds. Balance: {from_account.currency} {from_account.balance}"}
-                
-                proposal_id = str(uuid.uuid4())
-                conn.execute(
-                    insert(transfer_log).values(
-                        id=proposal_id,
-                        user_id=user_id,
-                        from_account_id=from_account.id,
-                        to_account_id=to_account.id,
-                        amount=amount,
-                        description=description or f"Internal transfer",
-                        status=TransferStatus.PENDING.value
+        async with engine.begin() as conn:
+            result = await conn.execute(
+                select(accounts).where(
+                    and_(
+                        accounts.c.user_id == user_id,
+                        func.lower(accounts.c.name) == from_account_name.lower()
                     )
                 )
-                
+            )
+            from_account = result.first()
+            
+            if not from_account:
+                return {"success": False, "error": f"Source account '{from_account_name}' not found"}
+            
+            result = await conn.execute(
+                select(accounts).where(
+                    and_(
+                        accounts.c.user_id == user_id,
+                        func.lower(accounts.c.name) == to_account_name.lower()
+                    )
+                )
+            )
+            to_account = result.first()
+            
+            if not to_account:
+                return {"success": False, "error": f"Destination account '{to_account_name}' not found"}
+            
+            if from_account.id == to_account.id:
+                return {"success": False, "error": "Cannot transfer to the same account"}
+            
+            if from_account.currency != to_account.currency:
                 return {
-                    "success": True,
-                    "proposal_id": proposal_id,
-                    "from_account": from_account.name,
-                    "to_account": to_account.name,
-                    "amount": amount,
-                    "currency": settings.default_currency,
-                    "message": "Transfer proposal created. Please approve to execute."
+                    "success": False,
+                    "error": f"Currency mismatch: {from_account.name} is {from_account.currency} but {to_account.name} is {to_account.currency}"
                 }
-
-        return await asyncio.to_thread(_sync_propose_internal_transfer)
+            
+            if from_account.balance < amount:
+                return {"success": False, "error": f"Insufficient funds. Balance: {from_account.currency} {from_account.balance}"}
+            
+            proposal_id = str(uuid.uuid4())
+            await conn.execute(
+                insert(transfer_log).values(
+                    id=proposal_id,
+                    user_id=user_id,
+                    from_account_id=from_account.id,
+                    to_account_id=to_account.id,
+                    amount=amount,
+                    description=description or f"Internal transfer",
+                    status=TransferStatus.PENDING.value
+                )
+            )
+            
+            return {
+                "success": True,
+                "proposal_id": proposal_id,
+                "from_account": from_account.name,
+                "to_account": to_account.name,
+                "amount": amount,
+                "currency": settings.default_currency,
+                "message": "Transfer proposal created. Please approve to execute."
+            }
 
     async def approve_transfer(self, user_id: str, transfer_id: str) -> dict:
-        def _sync_approve_transfer():
-            try:
-                with engine.begin() as conn:
-                    transfer = conn.execute(
-                        select(transfer_log).where(
-                            and_(
-                                transfer_log.c.id == transfer_id,
-                                transfer_log.c.user_id == user_id,
-                                transfer_log.c.status == TransferStatus.PENDING.value
-                            )
-                        )
-                    ).first()
-                    
-                    if not transfer:
-                        return {"success": False, "error": "Transfer not found or already processed"}
-                    
-                    from_account = conn.execute(
-                        select(accounts).where(accounts.c.id == transfer.from_account_id)
-                    ).first()
-                    
-                    to_account = conn.execute(
-                        select(accounts).where(accounts.c.id == transfer.to_account_id)
-                    ).first()
-                    
-
-                    if to_account and from_account.currency != to_account.currency:
-                        conn.execute(
-                            update(transfer_log)
-                            .where(transfer_log.c.id == transfer_id)
-                            .values(
-                                status=TransferStatus.FAILED.value,
-                                rejection_reason=f'Currency mismatch: {from_account.currency} vs {to_account.currency}'
-                            )
-                        )
-                        return {
-                            "success": False,
-                            "error": f"Currency mismatch: source is {from_account.currency} but destination is {to_account.currency}"
-                        }
-                    
-              
-                    deduct_result = conn.execute(
-                        update(accounts)
-                        .where(
-                            and_(
-                                accounts.c.id == transfer.from_account_id,
-                                accounts.c.balance >= transfer.amount  # Atomic check
-                            )
-                        )
-                        .values(
-                            balance=accounts.c.balance - transfer.amount,
-                            updated_at=datetime.utcnow()
-                        )
-                )
-                    
-                 
-                 
-
-                    if deduct_result.rowcount == 0:
-                        conn.execute(
-                            update(transfer_log)
-                            .where(transfer_log.c.id == transfer_id)
-                            .values(
-                                status=TransferStatus.FAILED.value,
-                                rejection_reason='Insufficient funds'
-                            )
-                        )
-                        return {"success": False, "error": "Insufficient funds or account changed"}
-                    
-                    # Credit destination account
-                    conn.execute(
-                        update(accounts)
-                        .where(accounts.c.id == transfer.to_account_id)
-                        .values(
-                            balance=accounts.c.balance + transfer.amount,
-                            updated_at=datetime.utcnow()
-                        )
-                    )
-                    
-                    ref_number = f"TRF-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
-                    
-             
-                    conn.execute(
-                        insert(transactions).values(
-                            account_id=transfer.from_account_id,
-                            type=TransactionType.TRANSFER_OUT.value,
-                            amount=transfer.amount,
-                            category='transfer',
-                            description=transfer.description,
-                            reference_number=ref_number,
-                            status='completed'
-                        )
-                    )
-                    
-                    conn.execute(
-                        insert(transactions).values(
-                            account_id=transfer.to_account_id,
-                            type=TransactionType.TRANSFER_IN.value,
-                            amount=transfer.amount,
-                            category='transfer',
-                            description=transfer.description,
-                            reference_number=ref_number,
-                            status='completed'
-                        )
-                    )
-                    
-                    conn.execute(
-                        update(transfer_log)
-                        .where(transfer_log.c.id == transfer_id)
-                        .values(
-                            status=TransferStatus.COMPLETED.value,
-                            approved_at=datetime.utcnow(),
-                            executed_at=datetime.utcnow()
-                        )
-                    )
-                    
-                    return {
-                        "success": True,
-                        "message": f"Transfer of {settings.default_currency} {transfer.amount} completed successfully",
-                        "reference_number": ref_number
-                    }
-            except SQLAlchemyError as e:
-                logger.error(f"Transfer {transfer_id} failed, rolled back: {type(e).__name__}")
-                return {"success": False, "error": "Transfer failed, no funds moved"}
-
-        return await asyncio.to_thread(_sync_approve_transfer)
-
-    async def reject_transfer(self, user_id: str, transfer_id: str, reason: str = "") -> dict:
-        def _sync_reject_transfer():
-            with engine.begin() as conn:
-                result = conn.execute(
-                    update(transfer_log)
-                    .where(
+        try:
+            async with engine.begin() as conn:
+                result = await conn.execute(
+                    select(transfer_log).where(
                         and_(
                             transfer_log.c.id == transfer_id,
                             transfer_log.c.user_id == user_id,
                             transfer_log.c.status == TransferStatus.PENDING.value
                         )
+                    ).with_for_update()
+                )
+                transfer = result.first()
+                
+                if not transfer:
+                    return {"success": False, "error": "Transfer not found or already processed"}
+                
+                result = await conn.execute(
+                    select(accounts).where(accounts.c.id == transfer.from_account_id).with_for_update()
+                )
+                from_account = result.first()
+                
+                result = await conn.execute(
+                    select(accounts).where(accounts.c.id == transfer.to_account_id).with_for_update()
+                )
+                to_account = result.first()
+                
+
+                if to_account and from_account.currency != to_account.currency:
+                    await conn.execute(
+                        update(transfer_log)
+                        .where(transfer_log.c.id == transfer_id)
+                        .values(
+                            status=TransferStatus.FAILED.value,
+                            rejection_reason=f'Currency mismatch: {from_account.currency} vs {to_account.currency}'
+                        )
+                    )
+                    return {
+                        "success": False,
+                        "error": f"Currency mismatch: source is {from_account.currency} but destination is {to_account.currency}"
+                    }
+                
+          
+                deduct_result = await conn.execute(
+                    update(accounts)
+                    .where(
+                        and_(
+                            accounts.c.id == transfer.from_account_id,
+                            accounts.c.balance >= transfer.amount  # Atomic check
+                        )
                     )
                     .values(
-                        status=TransferStatus.REJECTED.value,
-                        rejected_at=datetime.utcnow(),
-                        rejection_reason=reason or "Rejected by user"
+                        balance=accounts.c.balance - transfer.amount,
+                        updated_at=datetime.utcnow()
                     )
                 )
                 
-                if result.rowcount == 0:
-                    return {"success": False, "error": "Transfer not found or already processed"}
-                
-                return {"success": True, "message": "Transfer rejected"}
+             
+             
 
-        return await asyncio.to_thread(_sync_reject_transfer)
+                if deduct_result.rowcount == 0:
+                    await conn.execute(
+                        update(transfer_log)
+                        .where(transfer_log.c.id == transfer_id)
+                        .values(
+                            status=TransferStatus.FAILED.value,
+                            rejection_reason='Insufficient funds'
+                        )
+                    )
+                    return {"success": False, "error": "Insufficient funds or account changed"}
+                
+                # Credit destination account
+                await conn.execute(
+                    update(accounts)
+                    .where(accounts.c.id == transfer.to_account_id)
+                    .values(
+                        balance=accounts.c.balance + transfer.amount,
+                        updated_at=datetime.utcnow()
+                    )
+                )
+                
+                ref_number = f"TRF-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+                
+         
+                await conn.execute(
+                    insert(transactions).values(
+                        account_id=transfer.from_account_id,
+                        type=TransactionType.TRANSFER_OUT.value,
+                        amount=transfer.amount,
+                        category='transfer',
+                        description=transfer.description,
+                        reference_number=ref_number,
+                        status='completed'
+                    )
+                )
+                
+                await conn.execute(
+                    insert(transactions).values(
+                        account_id=transfer.to_account_id,
+                        type=TransactionType.TRANSFER_IN.value,
+                        amount=transfer.amount,
+                        category='transfer',
+                        description=transfer.description,
+                        reference_number=ref_number,
+                        status='completed'
+                    )
+                )
+                
+                await conn.execute(
+                    update(transfer_log)
+                    .where(transfer_log.c.id == transfer_id)
+                    .values(
+                        status=TransferStatus.COMPLETED.value,
+                        approved_at=datetime.utcnow(),
+                        executed_at=datetime.utcnow()
+                    )
+                )
+                
+                return {
+                    "success": True,
+                    "message": f"Transfer of {settings.default_currency} {transfer.amount} completed successfully",
+                    "reference_number": ref_number
+                }
+        except SQLAlchemyError as e:
+            logger.error(f"Transfer {transfer_id} failed, rolled back: {type(e).__name__}")
+            return {"success": False, "error": "Transfer failed, no funds moved"}
+
+    async def reject_transfer(self, user_id: str, transfer_id: str, reason: str = "") -> dict:
+        async with engine.begin() as conn:
+            result = await conn.execute(
+                update(transfer_log)
+                .where(
+                    and_(
+                        transfer_log.c.id == transfer_id,
+                        transfer_log.c.user_id == user_id,
+                        transfer_log.c.status == TransferStatus.PENDING.value
+                    )
+                )
+                .values(
+                    status=TransferStatus.REJECTED.value,
+                    rejected_at=datetime.utcnow(),
+                    rejection_reason=reason or "Rejected by user"
+                )
+            )
+            
+            if result.rowcount == 0:
+                return {"success": False, "error": "Transfer not found or already processed"}
+            
+            return {"success": True, "message": "Transfer rejected"}
 
     async def get_pending_transfers(self, user_id: str) -> List[dict]:
-        def _sync_get_pending_transfers():
-            query = text("""
-                SELECT 
-                    t.id, t.amount, t.currency, t.description, t.created_at,
-                    fa.name as from_account,
-                    COALESCE(ta.name, b.nickname) as to_destination
-                FROM transfer_log t
-                JOIN accounts fa ON t.from_account_id = fa.id
-                LEFT JOIN accounts ta ON t.to_account_id = ta.id
-                LEFT JOIN beneficiaries b ON t.to_beneficiary_id = b.id
-                WHERE t.user_id = :user_id AND t.status = :status
-                ORDER BY t.created_at DESC
-            """)
-            
-            with engine.connect() as conn:
-                result = conn.execute(query, {"user_id": user_id, "status": TransferStatus.PENDING.value})
-                return [dict(row._mapping) for row in result]
-
-        return await asyncio.to_thread(_sync_get_pending_transfers)
+        query = text("""
+            SELECT 
+                t.id, t.amount, t.currency, t.description, t.created_at,
+                fa.name as from_account,
+                COALESCE(ta.name, b.nickname) as to_destination
+            FROM transfer_log t
+            JOIN accounts fa ON t.from_account_id = fa.id
+            LEFT JOIN accounts ta ON t.to_account_id = ta.id
+            LEFT JOIN beneficiaries b ON t.to_beneficiary_id = b.id
+            WHERE t.user_id = :user_id AND t.status = :status
+            ORDER BY t.created_at DESC
+        """)
+        
+        async with engine.connect() as conn:
+            result = await conn.execute(query, {"user_id": user_id, "status": TransferStatus.PENDING.value})
+            return [dict(row._mapping) for row in result]
 
     async def get_transfer_history(self, user_id: str, limit: int = 10) -> List[dict]:
-        def _sync_get_transfer_history():
-            query = text("""
-                SELECT 
-                    t.id, t.amount, t.currency, t.description, t.status,
-                    t.created_at, t.executed_at,
-                    fa.name as from_account,
-                    COALESCE(ta.name, b.nickname) as to_destination
-                FROM transfer_log t
-                JOIN accounts fa ON t.from_account_id = fa.id
-                LEFT JOIN accounts ta ON t.to_account_id = ta.id
-                LEFT JOIN beneficiaries b ON t.to_beneficiary_id = b.id
-                WHERE t.user_id = :user_id
-                ORDER BY t.created_at DESC
-                LIMIT :limit
-            """)
-            
-            with engine.connect() as conn:
-                result = conn.execute(query, {"user_id": user_id, "limit": limit})
-                return [dict(row._mapping) for row in result]
-
-        return await asyncio.to_thread(_sync_get_transfer_history)
+        query = text("""
+            SELECT 
+                t.id, t.amount, t.currency, t.description, t.status,
+                t.created_at, t.executed_at,
+                fa.name as from_account,
+                COALESCE(ta.name, b.nickname) as to_destination
+            FROM transfer_log t
+            JOIN accounts fa ON t.from_account_id = fa.id
+            LEFT JOIN accounts ta ON t.to_account_id = ta.id
+            LEFT JOIN beneficiaries b ON t.to_beneficiary_id = b.id
+            WHERE t.user_id = :user_id
+            ORDER BY t.created_at DESC
+            LIMIT :limit
+        """)
+        
+        async with engine.connect() as conn:
+            result = await conn.execute(query, {"user_id": user_id, "limit": limit})
+            return [dict(row._mapping) for row in result]
 
     
     

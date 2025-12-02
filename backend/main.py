@@ -112,8 +112,8 @@ async def rate_limit_bankbot(request: Request, call_next):
 @limiter.limit("60/minute")
 async def health_check(request: Request):
     try:
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
         return {
             "status": "healthy",
             "components": {"api": "healthy", "database": "connected"}
