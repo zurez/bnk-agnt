@@ -12,26 +12,36 @@ SAMBANOVA_MODELS = {
     "qwen3-32b": "Qwen3-32B",
 }
 
-def get_llm(model_name: str, openai_api_key: str = None, sambanova_api_key: str = None):
+def get_llm(model_name: str, openai_api_key: str = None, sambanova_api_key: str = None, **kwargs):
     # Determine which keys to use
     
     if model_name not in SAMBANOVA_MODELS:
+        # OpenAI
         api_key = openai_api_key if (settings.allow_user_keys and openai_api_key) else None
         return ChatOpenAI(
             model=settings.default_model, 
             temperature=0, 
             streaming=True,
-            api_key=api_key
+            api_key=api_key,
+            **kwargs
         )
     
     is_reasoning = "r1" in model_name.lower()
     api_key = sambanova_api_key if (settings.allow_user_keys and sambanova_api_key) else None
     
+    # Default Sambanova settings if not overridden
+    sambanova_kwargs = {
+        "max_tokens": settings.sambanova_max_tokens,
+        "temperature": settings.sambanova_reasoning_temperature if is_reasoning else 0,
+        "top_p": settings.sambanova_reasoning_top_p if is_reasoning else settings.sambanova_standard_top_p,
+    }
+    
+    # Update with any provided kwargs
+    sambanova_kwargs.update(kwargs)
+    
     return ChatSambaNova(
         model=SAMBANOVA_MODELS[model_name],
-        max_tokens=settings.sambanova_max_tokens,
-        temperature=settings.sambanova_reasoning_temperature if is_reasoning else 0,
-        top_p=settings.sambanova_reasoning_top_p if is_reasoning else settings.sambanova_standard_top_p,
         streaming=True,
-        sambanova_api_key=api_key
+        sambanova_api_key=api_key,
+        **sambanova_kwargs
     )
