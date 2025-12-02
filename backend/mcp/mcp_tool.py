@@ -37,11 +37,11 @@ def validate_amount(amount: float) -> Decimal:
         raise ValueError(f"Cannot convert amount to valid currency value: {e}")
 
     if decimal_amount <= 0:
-        raise ValueError(f"Amount must be positive, got: {decimal_amount} AED")
+        raise ValueError(f"Amount must be positive, got: {decimal_amount} {settings.default_currency}")
     
     max_allowed = Decimal(str(settings.max_transfer_amount))
     if decimal_amount > max_allowed:
-        raise ValueError(f"Amount {decimal_amount} AED exceeds maximum transfer limit of {max_allowed} AED")
+        raise ValueError(f"Amount {decimal_amount} {settings.default_currency} exceeds maximum transfer limit of {max_allowed} {settings.default_currency}")
     
     return decimal_amount
 
@@ -110,7 +110,7 @@ async def propose_transfer(
         user_id: The user's ID
         from_account_name: Source account name (e.g., "Salary Account", "Savings")
         to_beneficiary_nickname: Beneficiary nickname (e.g., "Bob - Main", "Carol - Current")
-        amount: Amount to transfer in AED (must be positive and <= max limit)
+        amount: Amount to transfer in {settings.default_currency} (must be positive and <= max limit)
         description: Optional transfer description
     
     Returns:
@@ -146,7 +146,7 @@ async def propose_internal_transfer(
         user_id: The user's ID
         from_account_name: Source account name (e.g., "Salary Account")
         to_account_name: Destination account name (e.g., "Savings Account")
-        amount: Amount to transfer in AED (must be positive and <= max limit)
+        amount: Amount to transfer in {settings.default_currency} (must be positive and <= max limit)
         description: Optional transfer description
     """
     # Validate amount with comprehensive checks

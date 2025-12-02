@@ -190,7 +190,7 @@ class BankingMCPServer:
                         beneficiary_account_id=beneficiary_account_id,
                         nickname=nickname,
                         account_number=account_number,
-                        bank_name='Phoenix Digital Bank',
+                        bank_name=settings.bank_name,
                         is_internal=True
                     )
                 )
@@ -243,7 +243,7 @@ class BankingMCPServer:
                     return {"success": False, "error": f"Account '{from_account_name}' not found"}
                 
                 if from_account.balance < amount:
-                    return {"success": False, "error": f"Insufficient funds. Balance: AED {from_account.balance}"}
+                    return {"success": False, "error": f"Insufficient funds. Balance: {settings.default_currency} {from_account.balance}"}
                 
                 beneficiary = conn.execute(
                     select(beneficiaries).where(
@@ -292,7 +292,7 @@ class BankingMCPServer:
                     "from_account": from_account.name,
                     "to_beneficiary": beneficiary.nickname,
                     "amount": amount,
-                    "currency": "AED",
+                    "currency": settings.default_currency,
                     "message": "Transfer proposal created. Please approve to execute."
                 }
 
@@ -364,7 +364,7 @@ class BankingMCPServer:
                     "from_account": from_account.name,
                     "to_account": to_account.name,
                     "amount": amount,
-                    "currency": "AED",
+                    "currency": settings.default_currency,
                     "message": "Transfer proposal created. Please approve to execute."
                 }
 
@@ -488,7 +488,7 @@ class BankingMCPServer:
                     
                     return {
                         "success": True,
-                        "message": f"Transfer of AED {transfer.amount} completed successfully",
+                        "message": f"Transfer of {settings.default_currency} {transfer.amount} completed successfully",
                         "reference_number": ref_number
                     }
             except SQLAlchemyError as e:

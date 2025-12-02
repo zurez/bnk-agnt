@@ -17,7 +17,6 @@ from config import settings
 
 if settings.is_arize_phoenix_enabled():
     from arize.otel import register
-    logger.info(f"Configuring Arize Phoenix: {settings.phoenix_space_id[:4]}... / {settings.phoenix_project_name}")
     
     try:
         tracer_provider = register(
@@ -25,7 +24,8 @@ if settings.is_arize_phoenix_enabled():
             api_key=settings.phoenix_api_key,
             project_name=settings.phoenix_project_name,
             set_global_tracer_provider=True,
-            batch=True,
+            endpoint=settings.arize_endpoint,
+            batch=True
         )
     except Exception as e:
         logger.error(f"Failed to register Arize Phoenix: {e}")

@@ -1,4 +1,3 @@
-
 import os
 import logging
 from typing import Dict, Any
@@ -7,6 +6,7 @@ from langchain_openai import ChatOpenAI
 from langchain_sambanova import ChatSambaNova
 from langchain_core.messages import SystemMessage, HumanMessage
 
+from config import settings
 from bankbot.nodes.helpers.prompt_helper import get_intent_prompt
 from bankbot.nodes.helpers import query_validator
 
@@ -14,11 +14,6 @@ logger = logging.getLogger(__name__)
 
 BLOCKED_MESSAGE = "Unauthorized use or prohibited keywords in the query."
 MODE = "loose"  # "strict" or "loose"
-
-
-INTENT_CLASSIFIER_MODEL = "sambanova"  # "openai" or "sambanova"
-SAMBANOVA_MODEL = "Meta-Llama-3.3-70B-Instruct"
-OPENAI_MODEL = "gpt-4o-mini"
 
 
 async def intent_classifier_node(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -38,14 +33,10 @@ async def intent_classifier_node(state: Dict[str, Any]) -> Dict[str, Any]:
     query = last_message.content
     query_lower = query.lower()
     
-    logger.info(f"[INTENT_CLASSIFIER] Starting classification for query: '{query[:100]}...'")
-
-    logger.info("[INTENT_CLASSIFIER] Step 1: Running rule-based validation")
-    is_valid_query = query_validator.validate_query(query_lower)
+    is_valid = query_validator.validate_query(query)
     
-    if not is_valid_query:
-        logger.warning(f"[INTENT_CLASSIFIER] BLOCKED by rule-based validation")
-        logger.warning(f"[INTENT_CLASSIFIER] Query: '{query}'")
+    if not is_valid:
+        logger.warning(f"[INTENT_CLASSIFIER] BLOCKED by rule-based validation: '{query}'")
         return {
             "intent": "blocked",
             "intent_reason": BLOCKED_MESSAGE,
@@ -57,24 +48,21 @@ async def intent_classifier_node(state: Dict[str, Any]) -> Dict[str, Any]:
             }
         }
     
-    logger.info("[INTENT_CLASSIFIER] Passed rule-based validation")
-      
     try:
-        if INTENT_CLASSIFIER_MODEL == "sambanova":
-            llm_name = f"SambaNova/{SAMBANOVA_MODEL}"
-            logger.info(f"[INTENT_CLASSIFIER] Step 2: Using LLM classifier: {llm_name}")
+        if settings.intent_classifier_model_provider == "sambanova":
+            llm_name = settings.intent_classifier_model
             llm = ChatSambaNova(
-                model=SAMBANOVA_MODEL,
-                max_tokens=500,
+                model=settings.intent_classifier_model,
+                max_tokens=100,
                 temperature=0,
             )
         else:
-            llm_name = f"OpenAI/{OPENAI_MODEL}"
-            logger.info(f"[INTENT_CLASSIFIER] Step 2: Using LLM classifier: {llm_name}")
+            llm_name = settings.intent_classifier_model
             llm = ChatOpenAI(
-                model=OPENAI_MODEL,
+                model=settings.intent_classifier_model,
                 temperature=0,
-                api_key=os.getenv("OPENAI_API_KEY")
+                api_key=os.getenv("OPENAI_API_KEY"),
+                max_tokens=100,
             )
         
      
@@ -83,8 +71,6 @@ async def intent_classifier_node(state: Dict[str, Any]) -> Dict[str, Any]:
             SystemMessage(content="You are a banking security classifier"),
             HumanMessage(content=human_message)
         ]
-        
-        logger.info(f"[INTENT_CLASSIFIER] Invoking LLM with prompt length: {len(human_message)} chars")
         
         @retry(
             stop=stop_after_attempt(3),
@@ -98,30 +84,34 @@ async def intent_classifier_node(state: Dict[str, Any]) -> Dict[str, Any]:
         response = await invoke_with_retry(classification_messages)
         intent_response = response.content.strip().lower()
         
-        logger.info(f"[INTENT_CLASSIFIER] LLM response: '{intent_response}'")
-        
+
         if "blocked" in intent_response:
-            final_intent = "blocked"
-            reason = BLOCKED_MESSAGE
-            logger.warning(f"[INTENT_CLASSIFIER] BLOCKED by LLM classifier")
-            logger.warning(f"[INTENT_CLASSIFIER] LLM reasoning: '{intent_response}'")
-        else:
-            final_intent = "allowed"
-            reason = ""
-            logger.info(f"[INTENT_CLASSIFIER] ALLOWED by LLM classifier")
-        
-        return {
-            "intent": final_intent,
-            "intent_reason": reason,
-            "classification_metadata": {
-                "decision_method": "llm",
-                "model": llm_name,
-                "llm_response": intent_response,
-                "query_snippet": query[:100],
-                "result": final_intent,
-                "passed_rule_validation": True
+            logger.warning(f"[INTENT_CLASSIFIER] BLOCKED by LLM: {intent_response}")
+            return {
+                "intent": "blocked",
+                "intent_reason": BLOCKED_MESSAGE,
+                "classification_metadata": {
+                    "decision_method": "llm",
+                    "model": llm_name,
+                    "llm_response": intent_response,
+                    "query_snippet": query[:100],
+                    "result": "blocked",
+                    "passed_rule_validation": True
+                }
             }
-        }
+        else:
+            return {
+                "intent": "allowed",
+                "intent_reason": "",
+                "classification_metadata": {
+                    "decision_method": "llm",
+                    "model": llm_name,
+                    "llm_response": intent_response,
+                    "query_snippet": query[:100],
+                    "result": "allowed",
+                    "passed_rule_validation": True
+                }
+            }
         
 
     except Exception as e:
@@ -141,7 +131,7 @@ async def intent_classifier_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 }
             }
         else:
-            logger.info(f"[INTENT_CLASSIFIER] ALLOWED despite error (loose mode)")
+            # Loose mode: allow despite error
             return {
                 "intent": "allowed",
                 "intent_reason": "",

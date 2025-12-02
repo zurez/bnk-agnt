@@ -9,3 +9,5 @@ class AgentState(CopilotKitState):
     intent: Optional[Literal["allowed", "blocked"]]
     intent_reason: Optional[str]
     actions: Optional[List[Any]]
+    openai_api_key: Optional[str]
+    sambanova_api_key: Optional[str]
