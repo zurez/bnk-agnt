@@ -124,8 +124,8 @@ function PageContent({
   // Add this useEffect to debug streaming messages
   useEffect(() => {
     // Check for missing API key error
-    const lastMsg = visibleMessages?.[visibleMessages.length - 1];
-    if (lastMsg?.type === 'TextMessage' && lastMsg?.content?.includes('[SYSTEM_ERROR: MISSING_API_KEY]')) {
+    const lastMsg = visibleMessages?.[visibleMessages.length - 1] as any;
+    if (lastMsg?.isTextMessage() && lastMsg?.content?.includes('[SYSTEM_ERROR: MISSING_API_KEY]')) {
       setSettingsError("An API key is required to proceed. Please enter your key below.");
       setIsSettingsOpen(true);
     }
