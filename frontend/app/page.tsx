@@ -741,7 +741,7 @@ useCopilotAction({
 
 export default function App() {
   const DEFAULT_USER_ID = users[0].id; 
-  const DEFAULT_MODEL_ID = 'qwen3-32b';
+  const DEFAULT_MODEL_ID = 'gpt-4o';
 
   const [selectedUserId, setSelectedUserId] = useState(DEFAULT_USER_ID);
   const [selectedModelId, setSelectedModelId] = useState(DEFAULT_MODEL_ID);
