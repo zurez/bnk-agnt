@@ -117,7 +117,7 @@ class ToolManager:
     
     @staticmethod
     def _make_handler(name: str, schema: Any = None):
-        def handler(**kwargs) -> str:
+        async def handler(**kwargs) -> str:
             if schema:
                 try:
                     # Validate arguments against schema if provided
