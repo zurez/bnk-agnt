@@ -19,14 +19,14 @@ class TransactionType(str, Enum):
     TRANSFER_IN = "transfer_in"
     TRANSFER_OUT = "transfer_out"
 
-
+# @todo - use it in the api error
 class APIError(BaseModel):
     """Structured API error response."""
     code: str = Field(..., description="Error code for programmatic handling")
     message: str = Field(..., description="Human-readable error message")
     details: Optional[dict] = Field(None, description="Additional error context")
 
-
+# @todo - use it  
 class APIResponse(BaseModel):
     """Structured API response wrapper."""
     success: bool
