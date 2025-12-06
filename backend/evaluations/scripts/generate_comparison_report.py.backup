@@ -1,0 +1,856 @@
+"""
+Generate an enhanced comparison report for multiple model evaluations.
+
+Features:
+- Main summary view with model performance overview
+- Clickable model cards to view detailed test results
+- Handles missing token data gracefully
+- Shows tool usage, execution time, and pass rates
+
+Usage:
+    python evaluations/scripts/generate_comparison_report.py
+    python evaluations/scripts/generate_comparison_report.py --files eval_gpt-4o_*.json eval_gpt-4o-mini_*.json
+"""
+
+import argparse
+import json
+import os
+from datetime import datetime
+from pathlib import Path
+from typing import List, Dict, Any
+import sys
+
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+from evaluations.config import eval_config
+
+
+HTML_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Model Comparison Report - {timestamp}</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #e4e4e4;
+            min-height: 100vh;
+            padding: 2rem;
+        }}
+        .container {{ max-width: 1800px; margin: 0 auto; }}
+        h1 {{
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }}
+        h2 {{
+            font-size: 1.8rem;
+            color: #667eea;
+            margin: 2rem 0 1rem 0;
+        }}
+        .subtitle {{ color: #888; margin-bottom: 2rem; }}
+        
+        .summary-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 3rem;
+        }}
+        
+        .model-summary-card {{
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 1.5rem;
+            backdrop-filter: blur(10px);
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }}
+        
+        .model-summary-card:hover {{
+            transform: translateY(-4px);
+            border-color: rgba(102, 126, 234, 0.5);
+            box-shadow: 0 8px 32px rgba(102, 126, 234, 0.2);
+        }}
+        
+        .model-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 2px solid rgba(102, 126, 234, 0.3);
+        }}
+        
+        .model-name {{
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #667eea;
+        }}
+        
+        .pass-rate {{
+            font-size: 2.5rem;
+            font-weight: 700;
+        }}
+        
+        .pass-rate.high {{ color: #4ade80; }}
+        .pass-rate.medium {{ color: #fbbf24; }}
+        .pass-rate.low {{ color: #f87171; }}
+        
+        .quick-stats {{
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+        }}
+        
+        .quick-stat {{
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            padding: 0.75rem;
+            text-align: center;
+        }}
+        
+        .quick-stat-value {{
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: #667eea;
+        }}
+        
+        .quick-stat-label {{
+            font-size: 0.75rem;
+            color: #aaa;
+            margin-top: 0.25rem;
+        }}
+        
+        .click-hint {{
+            text-align: center;
+            color: #667eea;
+            font-size: 0.85rem;
+            margin-top: 1rem;
+            opacity: 0.7;
+        }}
+        
+        .detailed-view {{
+            display: none;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 2rem;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            margin-bottom: 2rem;
+        }}
+        
+        .detailed-view.active {{
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }}
+        
+        @keyframes fadeIn {{
+            from {{ opacity: 0; transform: translateY(20px); }}
+            to {{ opacity: 1; transform: translateY(0); }}
+        }}
+        
+        .back-button {{
+            background: rgba(102, 126, 234, 0.2);
+            border: 1px solid rgba(102, 126, 234, 0.4);
+            color: #667eea;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            margin-bottom: 1.5rem;
+            transition: all 0.2s ease;
+        }}
+        
+        .back-button:hover {{
+            background: rgba(102, 126, 234, 0.3);
+            transform: translateX(-4px);
+        }}
+        
+        .test-cases {{
+            display: grid;
+            gap: 1rem;
+        }}
+        
+        .test-case {{
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 12px;
+            padding: 1.5rem;
+            border-left: 4px solid;
+        }}
+        
+        .test-case.pass {{ border-left-color: #4ade80; }}
+        .test-case.fail {{ border-left-color: #f87171; }}
+        
+        .test-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }}
+        
+        .test-input {{
+            font-weight: 600;
+            color: #e4e4e4;
+            font-size: 1.1rem;
+        }}
+        
+        .test-status {{
+            padding: 0.25rem 0.75rem;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }}
+        
+        .test-status.pass {{
+            background: rgba(74, 222, 128, 0.2);
+            color: #4ade80;
+        }}
+        
+        .test-status.fail {{
+            background: rgba(248, 113, 113, 0.2);
+            color: #f87171;
+        }}
+        
+        .test-details {{
+            display: grid;
+            gap: 0.75rem;
+            margin-top: 1rem;
+        }}
+        
+        .test-detail {{
+            display: flex;
+            gap: 0.5rem;
+        }}
+        
+        .test-detail-label {{
+            color: #aaa;
+            min-width: 120px;
+        }}
+        
+        .test-detail-value {{
+            color: #e4e4e4;
+        }}
+        
+        .tool-flow {{
+            background: rgba(102, 126, 234, 0.1);
+            padding: 0.5rem 0.75rem;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            color: #667eea;
+        }}
+        
+        .metrics-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }}
+        
+        .metric-card {{
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+            padding: 1rem;
+            border-left: 3px solid;
+        }}
+        
+        .metric-card.pass {{ border-left-color: #4ade80; }}
+        .metric-card.fail {{ border-left-color: #f87171; }}
+        
+        .metric-name {{
+            font-size: 0.85rem;
+            color: #aaa;
+            margin-bottom: 0.5rem;
+        }}
+        
+        .metric-score {{
+            font-size: 1.5rem;
+            font-weight: 700;
+        }}
+        
+        .metric-score.pass {{ color: #4ade80; }}
+        .metric-score.fail {{ color: #f87171; }}
+        
+        .chart-container {{
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 1.5rem;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            margin-bottom: 2rem;
+        }}
+        
+        .chart-title {{
+            font-size: 1.2rem;
+            color: #667eea;
+            margin-bottom: 1rem;
+            text-align: center;
+        }}
+        
+        footer {{
+            text-align: center;
+            color: #666;
+            margin-top: 3rem;
+            padding-top: 2rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }}
+        
+        @media (max-width: 768px) {{
+            .summary-grid {{
+                grid-template-columns: 1fr;
+            }}
+            .quick-stats {{
+                grid-template-columns: 1fr;
+            }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏆 Model Comparison Report</h1>
+        <p class="subtitle">Generated: {timestamp}</p>
+        
+        <div id="summaryView">
+            {summary_content}
+        </div>
+        
+        {detailed_views}
+        
+        <footer>
+            Generated by DeepEval Model Comparison Tool • Interactive Charts powered by Chart.js
+        </footer>
+    </div>
+    
+    {charts_script}
+</body>
+</html>
+"""
+
+
+def parse_test_results(results_str: str) -> Dict[str, float]:
+    """Parse metric pass rates from results string."""
+    import re
+    
+    metrics = {}
+    
+    # Extract metric pass rates
+    pattern = r"([^:]+):\s+([\d.]+)%\s+pass rate"
+    for match in re.finditer(pattern, results_str):
+        metric_name = match.group(1).strip()
+        pass_rate = float(match.group(2))
+        metrics[metric_name] = pass_rate
+    
+    return metrics
+
+
+def get_color_class(value: float) -> str:
+    """Get color class based on value."""
+    if value >= 70:
+        return "high"
+    elif value >= 40:
+        return "medium"
+    else:
+        return "low"
+
+
+def parse_test_case_results(results_str: str) -> List[Dict]:
+    """Parse individual test case results from the results string."""
+    # This is a simplified parser - in production you'd want more robust parsing
+    # For now, we'll return empty list and rely on the summary metrics
+    return []
+
+
+def generate_comparison_report(result_files: List[Path]) -> tuple[str, str, str]:
+    """Generate HTML comparison report with summary and detailed views."""
+    models_data = []
+    
+    for result_file in result_files:
+        with open(result_file) as f:
+            data = json.load(f)
+        
+        model_name = data.get("model", "Unknown")
+        num_cases = data.get("num_test_cases", 0)
+        results_str = data.get("results", "")
+        aggregated_metrics = data.get("aggregated_metrics", {})
+        
+        # Parse metrics
+        metrics = parse_test_results(results_str)
+        
+        # Calculate overall pass rate from results string
+        import re
+        pass_match = re.search(r"Pass Rate:\s+([\d.]+)%", results_str)
+        overall_pass_rate = float(pass_match.group(1)) if pass_match else 0.0
+        
+        # Extract test results
+        passed_match = re.search(r"Passed:\s+(\d+)", results_str)
+        failed_match = re.search(r"Failed:\s+(\d+)", results_str)
+        passed = int(passed_match.group(1)) if passed_match else 0
+        failed = int(failed_match.group(1)) if failed_match else 0
+        
+        models_data.append({
+            "name": model_name,
+            "file": result_file.name,
+            "num_cases": num_cases,
+            "overall_pass_rate": overall_pass_rate,
+            "passed": passed,
+            "failed": failed,
+            "metrics": metrics,
+            "aggregated_metrics": aggregated_metrics,
+            "results_str": results_str,
+            "test_cases": data.get("test_cases", [])
+        })
+    
+    # Sort by overall pass rate
+    models_data.sort(key=lambda x: x["overall_pass_rate"], reverse=True)
+    
+    # Generate summary cards
+    summary_cards = ""
+    for i, model in enumerate(models_data):
+        color_class = get_color_class(model["overall_pass_rate"])
+        agg = model.get("aggregated_metrics", {})
+        
+        total_tool_calls = agg.get("total_tool_calls", 0)
+        avg_exec_time = agg.get("avg_execution_time", 0)
+        total_tokens = agg.get("total_tokens", 0)
+        total_cost = agg.get("total_cost", 0)
+        
+        # Show meaningful stats even if tokens are 0
+        stats_html = f"""
+            <div class="quick-stat">
+                <div class="quick-stat-value">{total_tool_calls}</div>
+                <div class="quick-stat-label">Tool Calls</div>
+            </div>
+            <div class="quick-stat">
+                <div class="quick-stat-value">{avg_exec_time:.1f}s</div>
+                <div class="quick-stat-label">Avg Time</div>
+            </div>
+        """
+        
+        if total_tokens > 0:
+            stats_html += f"""
+                <div class="quick-stat">
+                    <div class="quick-stat-value">{total_tokens:,}</div>
+                    <div class="quick-stat-label">Tokens</div>
+                </div>
+                <div class="quick-stat">
+                    <div class="quick-stat-value">${total_cost:.4f}</div>
+                    <div class="quick-stat-label">Cost</div>
+                </div>
+            """
+        else:
+            stats_html += f"""
+                <div class="quick-stat">
+                    <div class="quick-stat-value">{model['passed']}/{model['num_cases']}</div>
+                    <div class="quick-stat-label">Passed</div>
+                </div>
+                <div class="quick-stat">
+                    <div class="quick-stat-value">{len(model['metrics'])}</div>
+                    <div class="quick-stat-label">Metrics</div>
+                </div>
+            """
+        
+        summary_cards += f"""
+            <div class="model-summary-card" onclick="showDetails('{model['name']}')">
+                <div class="model-header">
+                    <div class="model-name">{model['name']}</div>
+                    <div class="pass-rate {color_class}">{model['overall_pass_rate']:.0f}%</div>
+                </div>
+                <div class="quick-stats">
+                    {stats_html}
+                </div>
+                <div class="click-hint">👆 Click to view detailed results</div>
+            </div>
+        """
+    
+    summary_content = f"""
+        <h2>📊 Model Performance Summary</h2>
+        <div class="summary-grid">
+            {summary_cards}
+        </div>
+        
+        <div class="chart-container">
+            <div class="chart-title">Performance Comparison</div>
+            <canvas id="comparisonChart"></canvas>
+        </div>
+    """
+    
+    # Generate detailed views
+    detailed_views = ""
+    for model in models_data:
+        agg = model.get("aggregated_metrics", {})
+        tool_usage = agg.get("tool_usage_breakdown", {})
+        
+        # Tool breakdown
+        tool_breakdown_html = ""
+        for tool_name, tool_data in sorted(tool_usage.items(), key=lambda x: x[1].get("count", 0), reverse=True):
+            tool_breakdown_html += f"""
+                <div class="test-detail">
+                    <div class="test-detail-label">{tool_name}:</div>
+                    <div class="test-detail-value">{tool_data.get("count", 0)} calls ({tool_data.get("total_args", 0)} args)</div>
+                </div>
+            """
+        
+        # Metrics breakdown
+        metrics_html = ""
+        for metric_name, pass_rate in model["metrics"].items():
+            status = "pass" if pass_rate >= 70 else "fail"
+            metrics_html += f"""
+                <div class="metric-card {status}">
+                    <div class="metric-name">{metric_name}</div>
+                    <div class="metric-score {status}">{pass_rate:.0f}%</div>
+                </div>
+            """
+        
+        detailed_views += f"""
+            <div id="details-{model['name']}" class="detailed-view">
+                <button class="back-button" onclick="showSummary()">← Back to Summary</button>
+                
+                <h2>{model['name']} - Detailed Results</h2>
+                
+                <div class="card">
+                    <h3 style="color: #667eea; margin-bottom: 1rem;">Performance Metrics</h3>
+                    <div class="metrics-grid">
+                        {metrics_html}
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h3 style="color: #667eea; margin-bottom: 1rem;">Execution Stats</h3>
+                    <div class="test-details">
+                        <div class="test-detail">
+                            <div class="test-detail-label">Total Tests:</div>
+                            <div class="test-detail-value">{model['num_cases']}</div>
+                        </div>
+                        <div class="test-detail">
+                            <div class="test-detail-label">Passed:</div>
+                            <div class="test-detail-value" style="color: #4ade80;">{model['passed']}</div>
+                        </div>
+                        <div class="test-detail">
+                            <div class="test-detail-label">Failed:</div>
+                            <div class="test-detail-value" style="color: #f87171;">{model['failed']}</div>
+                        </div>
+                        <div class="test-detail">
+                            <div class="test-detail-label">Pass Rate:</div>
+                            <div class="test-detail-value">{model['overall_pass_rate']:.1f}%</div>
+                        </div>
+                        <div class="test-detail">
+                            <div class="test-detail-label">Total Tool Calls:</div>
+                            <div class="test-detail-value">{agg.get("total_tool_calls", 0)}</div>
+                        </div>
+                        <div class="test-detail">
+                            <div class="test-detail-label">Avg Execution Time:</div>
+                            <div class="test-detail-value">{agg.get("avg_execution_time", 0):.2f}s</div>
+                        </div>
+                    </div>
+                </div>
+                
+                {f'''
+                <div class="card">
+                    <h3 style="color: #667eea; margin-bottom: 1rem;">Tool Usage Breakdown</h3>
+                    <div class="test-details">
+                        {tool_breakdown_html}
+                    </div>
+                </div>
+                ''' if tool_breakdown_html else ''}
+                
+                {generate_test_cases_html(model)}
+            </div>
+        """
+    
+    return summary_content, detailed_views, charts_script
+
+
+def generate_test_cases_html(model: Dict) -> str:
+    """Generate HTML for individual test cases."""
+    test_cases = model.get("test_cases", [])
+    
+    if not test_cases:
+        return ""
+    
+    test_cases_html = ""
+    for i, tc in enumerate(test_cases):
+        # Determine overall status based on metrics
+        metrics = tc.get("metrics", [])
+        success = all(m.get("success", False) for m in metrics) if metrics else False
+        status = "pass" if success else "fail"
+        status_text = "PASS" if success else "FAIL"
+        
+        # Tool flow
+        tool_calls = tc.get("tool_calls", [])
+        tool_flow_html = ""
+        if tool_calls:
+            tool_flow = " → ".join(tool_calls)
+            tool_flow_html = f'<div class="tool-flow">{tool_flow}</div>'
+        
+        # Metrics
+        metrics_html = ""
+        for metric in metrics:
+            metric_status = "pass" if metric.get("success", False) else "fail"
+            score = metric.get("score", 0) * 100
+            threshold = metric.get("threshold", 0) * 100
+            
+            metrics_html += f"""
+                <div class="metric-card {metric_status}">
+                    <div class="metric-name">{metric.get('name', 'Unknown')}</div>
+                    <div class="metric-score {metric_status}">{score:.0f}%</div>
+                    <div style="font-size: 0.75rem; color: #aaa; margin-top: 0.25rem;">Threshold: {threshold:.0f}%</div>
+                    {f'<div style="font-size: 0.85rem; color: #aaa; margin-top: 0.5rem;">{metric.get("reason", "")}</div>' if metric.get("reason") else ''}
+                </div>
+            """
+        
+        test_cases_html += f"""
+            <div class="test-case {status}">
+                <div class="test-header">
+                    <div class="test-input">Test #{i+1}: {tc.get('input', 'No input')[:80]}{'...' if len(tc.get('input', '')) > 80 else ''}</div>
+                    <div class="test-status {status}">{status_text}</div>
+                </div>
+                
+                <div class="test-details">
+                    <div class="test-detail">
+                        <div class="test-detail-label">Input:</div>
+                        <div class="test-detail-value">{tc.get('input', 'No input')}</div>
+                    </div>
+                    <div class="test-detail">
+                        <div class="test-detail-label">Expected:</div>
+                        <div class="test-detail-value">{tc.get('expected_output', 'No expected output')}</div>
+                    </div>
+                    <div class="test-detail">
+                        <div class="test-detail-label">Actual:</div>
+                        <div class="test-detail-value">{tc.get('actual_output', '(empty)')}</div>
+                    </div>
+                    <div class="test-detail">
+                        <div class="test-detail-label">Execution Time:</div>
+                        <div class="test-detail-value">{tc.get('execution_time', 0):.2f}s</div>
+                    </div>
+                    {f'<div class="test-detail"><div class="test-detail-label">Tool Flow:</div><div class="test-detail-value">{tool_flow_html}</div></div>' if tool_flow_html else ''}
+                </div>
+                
+                {f'<div class="metrics-grid" style="margin-top: 1rem;">{metrics_html}</div>' if metrics_html else ''}
+            </div>
+        """
+    
+    return f"""
+        <div class="card">
+            <h3 style="color: #667eea; margin-bottom: 1rem;">Individual Test Cases ({len(test_cases)} tests)</h3>
+    model_names = [m["name"] for m in models_data]
+    metric_names = sorted(set().union(*[m["metrics"].keys() for m in models_data]))
+    
+    datasets = []
+    colors = [
+        'rgba(102, 126, 234, 0.7)',
+        'rgba(118, 75, 162, 0.7)',
+        'rgba(248, 113, 113, 0.7)',
+        'rgba(74, 222, 128, 0.7)',
+        'rgba(251, 191, 36, 0.7)'
+    ]
+    
+    for i, model in enumerate(models_data):
+        metric_values = [model["metrics"].get(m, 0) for m in metric_names]
+        datasets.append({
+            "label": model["name"],
+            "data": metric_values,
+            "backgroundColor": colors[i % len(colors)],
+            "borderColor": colors[i % len(colors)].replace('0.7', '1'),
+            "borderWidth": 2
+        })
+    
+    charts_script = f"""
+    <script>
+        function showDetails(modelName) {{
+            document.getElementById('summaryView').style.display = 'none';
+            document.querySelectorAll('.detailed-view').forEach(el => el.classList.remove('active'));
+            document.getElementById('details-' + modelName).classList.add('active');
+        }}
+        
+        function showSummary() {{
+            document.getElementById('summaryView').style.display = 'block';
+            document.querySelectorAll('.detailed-view').forEach(el => el.classList.remove('active'));
+        }}
+        
+        // Comparison chart
+        const ctx = document.getElementById('comparisonChart');
+        new Chart(ctx, {{
+            type: 'bar',
+            data: {{
+                labels: {json.dumps(metric_names)},
+                datasets: {json.dumps(datasets)}
+            }},
+            options: {{
+                responsive: true,
+                maintainAspectRatio: true,
+                scales: {{
+                    y: {{
+                        beginAtZero: true,
+                        max: 100,
+                        ticks: {{ color: '#e4e4e4' }},
+                        grid: {{ color: 'rgba(255, 255, 255, 0.1)' }}
+                    }},
+                    x: {{
+                        ticks: {{ color: '#e4e4e4' }},
+                        grid: {{ color: 'rgba(255, 255, 255, 0.1)' }}
+                    }}
+                }},
+                plugins: {{
+                    legend: {{
+                        labels: {{ color: '#e4e4e4' }}
+                    }}
+                }}
+            }}
+        }});
+    </script>
+    """
+    
+    return summary_content, detailed_views, charts_script
+
+
+def generate_test_cases_html(model: Dict) -> str:
+    """Generate HTML for individual test cases."""
+    test_cases = model.get("test_cases", [])
+    
+    if not test_cases:
+        return ""
+    
+    test_cases_html = ""
+    for i, tc in enumerate(test_cases):
+        # Determine overall status based on metrics
+        metrics = tc.get("metrics", [])
+        success = all(m.get("success", False) for m in metrics) if metrics else False
+        status = "pass" if success else "fail"
+        status_text = "PASS" if success else "FAIL"
+        
+        # Tool flow
+        tool_calls = tc.get("tool_calls", [])
+        tool_flow_html = ""
+        if tool_calls:
+            tool_flow = " → ".join(tool_calls)
+            tool_flow_html = f'<div class="tool-flow">{tool_flow}</div>'
+        
+        # Metrics
+        metrics_html = ""
+        for metric in metrics:
+            metric_status = "pass" if metric.get("success", False) else "fail"
+            score = metric.get("score", 0) * 100
+            threshold = metric.get("threshold", 0) * 100
+            
+            metrics_html += f"""
+                <div class="metric-card {metric_status}">
+                    <div class="metric-name">{metric.get('name', 'Unknown')}</div>
+                    <div class="metric-score {metric_status}">{score:.0f}%</div>
+                    <div style="font-size: 0.75rem; color: #aaa; margin-top: 0.25rem;">Threshold: {threshold:.0f}%</div>
+                    {f'<div style="font-size: 0.85rem; color: #aaa; margin-top: 0.5rem;">{metric.get("reason", "")}</div>' if metric.get("reason") else ''}
+                </div>
+            """
+        
+        test_cases_html += f"""
+            <div class="test-case {status}">
+                <div class="test-header">
+                    <div class="test-input">Test #{i+1}: {tc.get('input', 'No input')[:80]}{'...' if len(tc.get('input', '')) > 80 else ''}</div>
+                    <div class="test-status {status}">{status_text}</div>
+                </div>
+                
+                <div class="test-details">
+                    <div class="test-detail">
+                        <div class="test-detail-label">Input:</div>
+                        <div class="test-detail-value">{tc.get('input', 'No input')}</div>
+                    </div>
+                    <div class="test-detail">
+                        <div class="test-detail-label">Expected:</div>
+                        <div class="test-detail-value">{tc.get('expected_output', 'No expected output')}</div>
+                    </div>
+                    <div class="test-detail">
+                        <div class="test-detail-label">Actual:</div>
+                        <div class="test-detail-value">{tc.get('actual_output', '(empty)')}</div>
+                    </div>
+                    <div class="test-detail">
+                        <div class="test-detail-label">Execution Time:</div>
+                        <div class="test-detail-value">{tc.get('execution_time', 0):.2f}s</div>
+                    </div>
+                    {f'<div class="test-detail"><div class="test-detail-label">Tool Flow:</div><div class="test-detail-value">{tool_flow_html}</div></div>' if tool_flow_html else ''}
+                </div>
+                
+                {f'<div class="metrics-grid" style="margin-top: 1rem;">{metrics_html}</div>' if metrics_html else ''}
+            </div>
+        """
+    
+    return f"""
+        <div class="card">
+            <h3 style="color: #667eea; margin-bottom: 1rem;">Individual Test Cases ({len(test_cases)} tests)</h3>
+            <div class="test-cases">
+                {test_cases_html}
+            </div>
+        </div>
+    """
+
+
+def find_latest_results(models: List[str]) -> List[Path]:
+    """Find the most recent result file for each model."""
+    results_dir = Path(eval_config.results_dir)
+    if not results_dir.exists():
+        return []
+    
+    result_files = []
+    for model in models:
+        # Find latest file for this model
+        pattern = f"eval_{model}_*.json"
+        files = sorted(results_dir.glob(pattern), key=os.path.getmtime, reverse=True)
+        if files:
+            result_files.append(files[0])
+    
+    return result_files
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Generate model comparison report")
+    parser.add_argument("--files", nargs="+", help="Specific result files to compare")
+    
+    args = parser.parse_args()
+    
+    results_dir = Path(eval_config.results_dir)
+    
+    if args.files:
+        result_files = [Path(f) for f in args.files]
+    else:
+        # Find latest results for each model in config
+        result_files = find_latest_results(eval_config.agent_models_to_compare)
+    
+    if not result_files:
+        print("❌ No result files found")
+        return
+    
+    print(f"📄 Comparing {len(result_files)} model(s):")
+    for f in result_files:
+        print(f"  - {f.name}")
+    
+    # Generate content
+    summary_content, detailed_views, charts_script = generate_comparison_report(result_files)
+    
+    # Generate HTML
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    html = HTML_TEMPLATE.format(
+        timestamp=timestamp,
+        summary_content=summary_content,
+        detailed_views=detailed_views,
+        charts_script=charts_script
+    )
+    
+    # Save report
+    report_file = results_dir / f"comparison_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+    report_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    with open(report_file, "w") as f:
+        f.write(html)
+    
+    print(f"\n✅ Comparison report generated: {report_file}")
+    print(f"📂 Open in browser: file://{report_file.absolute()}")
+
+
+if __name__ == "__main__":
+    main()

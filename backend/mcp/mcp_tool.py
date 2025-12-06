@@ -9,6 +9,20 @@ import math
 from mcp.mcp_impl import BankingMCPServer
 from config import settings
 
+# DeepEval tracing for evaluation
+try:
+    from deepeval.tracing import observe
+    DEEPEVAL_AVAILABLE = True
+except ImportError:
+    # DeepEval not installed, skip tracing
+    DEEPEVAL_AVAILABLE = False
+    def observe(*args, **kwargs):
+        """Dummy decorator when deepeval not available."""
+        def decorator(func):
+            return func
+        return decorator
+
+
 
 mcp_server = BankingMCPServer()
 
@@ -46,6 +60,7 @@ def validate_amount(amount: float) -> Decimal:
     return decimal_amount
 
 @tool
+@observe(type="tool")
 async def get_balance(user_id: str) -> str:
     """Get account balances for a user. Returns list of accounts with balances."""
 
@@ -53,6 +68,7 @@ async def get_balance(user_id: str) -> str:
     return json.dumps(result, default=custom_serializer)
 
 @tool
+@observe(type="tool")
 async def get_transactions(
     user_id: str, 
     from_date: str = None, 
@@ -76,6 +92,7 @@ async def get_transactions(
     return json.dumps(result, default=custom_serializer)
 
 @tool
+@observe(type="tool")
 async def get_spend_by_category(
     user_id: str, 
     from_date: str = None, 
@@ -96,6 +113,7 @@ async def get_spend_by_category(
     return json.dumps(result, default=custom_serializer)
 
 @tool
+@observe(type="tool")
 async def propose_transfer(
     user_id: str,
     from_account_name: str,
@@ -132,6 +150,7 @@ async def propose_transfer(
 
 
 @tool
+@observe(type="tool")
 async def propose_internal_transfer(
     user_id: str,
     from_account_name: str,
@@ -164,6 +183,7 @@ async def propose_internal_transfer(
     return json.dumps(result, default=custom_serializer)
 
 @tool
+@observe(type="tool")
 async def approve_transfer(user_id: str, transfer_id: str) -> str:
     """
     Approve and execute a pending transfer.
@@ -176,6 +196,7 @@ async def approve_transfer(user_id: str, transfer_id: str) -> str:
     return json.dumps(result, default=custom_serializer)
 
 @tool
+@observe(type="tool")
 async def reject_transfer(user_id: str, transfer_id: str, reason: str = "") -> str:
     """
     Reject a pending transfer.
@@ -190,6 +211,7 @@ async def reject_transfer(user_id: str, transfer_id: str, reason: str = "") -> s
 
 
 @tool
+@observe(type="tool")
 async def get_pending_transfers(user_id: str) -> str:
     """
     Get all pending transfers for a user that need approval.
@@ -202,6 +224,7 @@ async def get_pending_transfers(user_id: str) -> str:
 
 
 @tool
+@observe(type="tool")
 async def get_transfer_history(user_id: str, limit: int = 10) -> str:
     """
     Get transfer history for a user (completed, rejected, etc.)
@@ -214,6 +237,7 @@ async def get_transfer_history(user_id: str, limit: int = 10) -> str:
     return json.dumps(result, default=custom_serializer)
 
 @tool
+@observe(type="tool")
 async def get_beneficiaries(user_id: str) -> str:
     """
     Get list of beneficiaries for a user.
@@ -228,6 +252,7 @@ async def get_beneficiaries(user_id: str) -> str:
     return json.dumps(result, default=custom_serializer)
 
 @tool
+@observe(type="tool")
 async def add_beneficiary(
     user_id: str,
     account_number: str,
@@ -245,6 +270,7 @@ async def add_beneficiary(
     return json.dumps(result, default=custom_serializer)
 
 @tool
+@observe(type="tool")
 async def remove_beneficiary(user_id: str, beneficiary_id: str) -> str:
     """
     Remove a beneficiary from user's list.
