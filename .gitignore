@@ -71,3 +71,6 @@ htmlcov/
 .deepeval-cache.json
 .deepeval/
 temp_test_run_data.json
+backend/.deepeval/.deepeval-cache.json
+/backend/evaluations/results
+/backend/.deepeval
