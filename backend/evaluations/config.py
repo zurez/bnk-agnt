@@ -31,7 +31,7 @@ class EvaluationConfig(BaseSettings):
     evaluation_model: str = "gpt-4o"
     
     # OpenAI models to compare
-    agent_models_to_compare: list[str] = ["gpt-4o", "gpt-4o-mini"]
+    agent_models_to_compare: list[str] = ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"]
     
     # Metric Thresholds
     plan_quality_threshold: float = 0.7

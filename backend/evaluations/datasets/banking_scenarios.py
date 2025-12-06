@@ -53,7 +53,7 @@ TRANSACTION_HISTORY_GOLDENS = [
     ),
     Golden(
         input="What were my last 5 transactions?",
-        expected_output="Your last 5 transactions are displayed above.",
+        expected_output="Here are your recent transactions.",
         context=["User wants limited transaction history"],
         additional_metadata={
             "expected_tool_flow": ["get_transactions", "showTransactions"],
